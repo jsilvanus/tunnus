@@ -269,7 +269,7 @@ times and audit metadata. Defaults, all configurable:
 
 ## Open questions
 
-- Licence and whether the repository is public from the start.
+- Whether the repository is public from the start (licence: EUPL-1.2).
 - Default session length (14 days sliding is proposed).
 - Whether clients should move from a file to the database (and the admin
   API) once there are more than a handful.

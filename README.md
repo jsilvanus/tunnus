@@ -22,3 +22,7 @@ npm test
 Every setting is an environment variable; see [`.env.example`](.env.example).
 Nothing deployment-specific (domains, groups, clients, branding, controller
 details) is built into the code.
+
+## Licence
+
+[EUPL-1.2](LICENSE).

@@ -4,6 +4,7 @@
   "description": "Small self-hosted OpenID Connect provider with passwordless email sign-in",
   "type": "module",
   "private": true,
+  "license": "EUPL-1.2",
   "engines": {
     "node": ">=24"
   },
@@ -36,5 +37,6 @@
     "oidc-provider": "^9.13.3",
     "pg": "^8.23.1",
     "pino": "^10.4.0"
-  }
+  },
+  "license": "EUPL-1.2"
 }
