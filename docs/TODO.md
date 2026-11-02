@@ -45,8 +45,9 @@ Goal: a real relying party signs in through Tunnus and receives `groups`.
       hashed, 10-minute expiry, 5 attempts, single use
 - [ ] Mail senders: console, SMTP (Nodemailer), Brevo; templates in
       `fi`, `sv`, `en`
-- [ ] Sign-up limited to `SIGNUP_EMAIL_DOMAINS`; admin-created users
-      allowed from any domain
+- [ ] Sign-up limited by `SIGNUP_EMAIL_ALLOW` / `SIGNUP_EMAIL_DENY` rules
+      (module and tests in `src/emailRules.js`); admin-created users
+      allowed from any address
 - [ ] Same response for known and unknown addresses
 - [ ] Link opens a confirmation page; sign-in only on `POST`; link in
       another browser shows the code instead

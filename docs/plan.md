@@ -19,7 +19,7 @@ This document is the design rationale. The phased build list lives in
   with PKCE, discovery, JWKS, userinfo, RP-initiated logout, refresh tokens.
 - Passwordless sign-in by an emailed one-time code (or a link to the same
   code).
-- Self-service sign-up limited to configured email domains.
+- Self-service sign-up limited by configurable email address rules (allow and deny patterns).
 - Groups: default groups every user joins at sign-up, and other groups
   granted by an administrator. Groups are emitted in the `groups` claim.
 - Administration through an HTTP API described by OpenAPI, with a CLI and
@@ -124,8 +124,10 @@ Sign-in and sign-up are the same flow.
    with an authorization code. A client can skip this page with
    `prompt=none`, or force a fresh sign-in with `prompt=login`.
 3. Otherwise Tunnus asks for an email address. Sign-up is allowed only for
-   domains in `SIGNUP_EMAIL_DOMAINS`; a user created by an admin may have
-   any address. The response is the same whether the address is known or
+   addresses matching `SIGNUP_EMAIL_ALLOW` and not matching
+   `SIGNUP_EMAIL_DENY` (patterns use `*` as a wildcard, case-insensitive,
+   matched against the whole address); a user created by an admin may
+   have any address. The response is the same whether the address is known or
    not, to avoid account enumeration.
 4. Tunnus emails a 6-digit code and a link carrying a separate one-time
    token.
