@@ -5,15 +5,15 @@ notes or deviations next to the item rather than deleting it.
 
 ## Phase 0: Repository setup
 
-- [ ] `package.json` (`"type": "module"`, Node 24 engines), `.nvmrc`
-- [ ] ESLint, Prettier, `tsc --noEmit` with JSDoc types (`checkJs`)
-- [ ] Vitest configured; `npm test`, `npm run test:integration`
-- [ ] `.env.example` with every variable from the plan
-- [ ] `docker-compose.yml` with PostgreSQL 16 for development
-- [ ] CI workflow: format, lint, typecheck, unit tests, integration tests
+- [x] `package.json` (`"type": "module"`, Node 24 engines), `.nvmrc`
+- [x] ESLint, Prettier, `tsc --noEmit` with JSDoc types (`checkJs`)
+- [x] Vitest configured; `npm test`, `npm run test:integration`
+- [x] `.env.example` with every variable from the plan
+- [x] `docker-compose.yml` with PostgreSQL 16 for development
+- [x] CI workflow: format, lint, typecheck, unit tests, integration tests
       against a Postgres service, Docker build
-- [ ] README: what Tunnus is, quick start, configuration pointer
-- [ ] LICENSE (decide licence)
+- [x] README: what Tunnus is, quick start, configuration pointer
+- [ ] LICENSE (decide licence; open question in the plan)
 
 ## Phase 1: Spike, a working code flow
 
@@ -50,7 +50,8 @@ Goal: a real relying party signs in through Tunnus and receives `groups`.
 - [ ] Same response for known and unknown addresses
 - [ ] Link opens a confirmation page; sign-in only on `POST`; link in
       another browser shows the code instead
-- [ ] Display-name step for new users; join `DEFAULT_GROUPS`
+- [ ] Display-name step for new users, prefilled from the email local part
+      and editable; join `DEFAULT_GROUPS`
 - [ ] Existing session: "Continue as <account>" / "Sign in with another
       account"; honour `prompt=none` and `prompt=login`
 - [ ] Sliding session (`SESSION_TTL_DAYS`)
@@ -98,7 +99,10 @@ Goal: a real relying party signs in through Tunnus and receives `groups`.
 - [ ] `<issuer>/health` with database and key status
 - [ ] Prometheus `/metrics` behind `METRICS_BEARER_TOKEN`: sign-ins,
       sign-ups, failed codes, mail errors, rate-limit hits
-- [ ] Audit retention cleanup job
+- [ ] Audit retention cleanup job; strip audit IPs after `AUDIT_IP_RETENTION_DAYS`
+- [ ] Inactive-user job: warning email at `INACTIVE_USER_WARN_DAYS` before
+      deletion, delete after `INACTIVE_USER_DELETE_DAYS`
+- [ ] Privacy notice page rendered from `CONTROLLER_*` and `PROCESSORS` env
 - [ ] Expired `oidc_payloads` and `email_codes` cleanup job
 - [ ] Image published to GHCR from CI on tags
 - [ ] Deployment guide: reverse proxy with a path prefix, database,
