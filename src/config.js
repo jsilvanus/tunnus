@@ -54,6 +54,15 @@ export function loadConfig(env = process.env) {
   if (issuer.endsWith('/')) throw new Error('ISSUER must not end with a slash');
   const basePath = url.pathname === '/' ? '' : url.pathname;
 
+  if (!['console', 'smtp', 'brevo'].includes(env.MAIL_PROVIDER ?? 'console'))
+    throw new Error('MAIL_PROVIDER must be console, smtp or brevo');
+  if (env.MAIL_PROVIDER === 'smtp' && !env.SMTP_URL)
+    throw new Error('SMTP_URL is required for smtp');
+  if (env.MAIL_PROVIDER === 'brevo' && !env.BREVO_API_KEY)
+    throw new Error('BREVO_API_KEY is required for brevo');
+  if (!['fi', 'sv', 'en'].includes(env.DEFAULT_LOCALE ?? 'en'))
+    throw new Error('DEFAULT_LOCALE must be fi, sv or en');
+
   const trustProxy = env.TRUST_PROXY ?? 'false';
   return {
     issuer,
@@ -68,14 +77,26 @@ export function loadConfig(env = process.env) {
     signupDeny: env.SIGNUP_EMAIL_DENY ?? '',
     defaultGroups: list(env.DEFAULT_GROUPS),
     sessionTtlDays: int(env, 'SESSION_TTL_DAYS', 14),
-    mailProvider: env.MAIL_PROVIDER ?? 'console',
+    mailProvider: /** @type {'console' | 'smtp' | 'brevo'} */ (env.MAIL_PROVIDER ?? 'console'),
+    mailFrom: env.MAIL_FROM ?? 'Tunnus <no-reply@localhost>',
+    smtpUrl: env.SMTP_URL ?? '',
+    brevoApiKey: env.BREVO_API_KEY ?? '',
+    limits: {
+      perEmailPerHour: int(env, 'RATE_LIMIT_EMAIL_PER_HOUR', 5),
+      perIpPerHour: int(env, 'RATE_LIMIT_IP_PER_HOUR', 20),
+      mailPerDay: int(env, 'MAIL_DAILY_CAP', 500),
+    },
+    controller: {
+      name: env.CONTROLLER_NAME ?? '',
+      contact: env.CONTROLLER_CONTACT ?? '',
+    },
     brand: {
       name: env.BRAND_NAME ?? 'Tunnus',
       logoUrl: env.BRAND_LOGO_URL ?? '',
       color: env.BRAND_COLOR ?? '#1f4e79',
       privacyNoticeUrl: env.PRIVACY_NOTICE_URL ?? '',
     },
-    defaultLocale: env.DEFAULT_LOCALE ?? 'en',
+    defaultLocale: /** @type {'fi' | 'sv' | 'en'} */ (env.DEFAULT_LOCALE ?? 'en'),
     retention: loadRetentionConfig(env),
   };
 }

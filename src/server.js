@@ -3,7 +3,7 @@ import { createApp } from './app.js';
 import { loadClients, loadConfig } from './config.js';
 import { createPool, migrate } from './db.js';
 import { ensureSigningKey } from './oidc/keys.js';
-import { createConsoleMailer } from './mail.js';
+import { createMailerFromConfig } from './mail.js';
 
 const logger = pino();
 const config = loadConfig();
@@ -15,7 +15,7 @@ const { app } = await createApp({
   config,
   pool,
   clients: loadClients(config.clientsFile),
-  mailer: createConsoleMailer(logger),
+  mailer: createMailerFromConfig(config, logger),
 });
 app.listen(config.port, () =>
   logger.info({ issuer: config.issuer, port: config.port }, 'tunnus listening'),
