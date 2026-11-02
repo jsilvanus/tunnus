@@ -204,7 +204,8 @@ them.
 | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `ISSUER`                                                            | Full issuer URL, may include a path                                                                                       |
 | `DATABASE_URL`                                                      | PostgreSQL connection                                                                                                     |
-| `SIGNUP_EMAIL_DOMAINS`                                              | Comma-separated domains allowed to self-register; empty closes sign-up                                                    |
+| `SIGNUP_EMAIL_ALLOW`                                                | Comma-separated address patterns allowed to self-register, e.g. `*@example.org`; empty closes sign-up                     |
+| `SIGNUP_EMAIL_DENY`                                                 | Comma-separated address patterns refused at sign-up even if allowed, e.g. `ext-*@example.org`; deny wins                  |
 | `DEFAULT_GROUPS`                                                    | Comma-separated groups every new user joins                                                                               |
 | `CLIENTS_FILE`                                                      | Path to the clients JSON file                                                                                             |
 | `KEY_ENCRYPTION_SECRET`                                             | Encrypts signing keys at rest                                                                                             |
