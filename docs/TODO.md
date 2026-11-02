@@ -5,39 +5,41 @@ notes or deviations next to the item rather than deleting it.
 
 ## Phase 0: Repository setup
 
-- [ ] `package.json` (`"type": "module"`, Node 24 engines), `.nvmrc`
-- [ ] ESLint, Prettier, `tsc --noEmit` with JSDoc types (`checkJs`)
-- [ ] Vitest configured; `npm test`, `npm run test:integration`
-- [ ] `.env.example` with every variable from the plan
-- [ ] `docker-compose.yml` with PostgreSQL 16 for development
-- [ ] CI workflow: format, lint, typecheck, unit tests, integration tests
+- [x] `package.json` (`"type": "module"`, Node 24 engines), `.nvmrc`
+- [x] ESLint, Prettier, `tsc --noEmit` with JSDoc types (`checkJs`)
+- [x] Vitest configured; `npm test`, `npm run test:integration`
+- [x] `.env.example` with every variable from the plan
+- [x] `docker-compose.yml` with PostgreSQL 16 for development
+- [x] CI workflow: format, lint, typecheck, unit tests, integration tests
       against a Postgres service, Docker build
-- [ ] README: what Tunnus is, quick start, configuration pointer
-- [ ] LICENSE (decide licence)
+- [x] README: what Tunnus is, quick start, configuration pointer
+- [x] LICENSE (decide licence; open question in the plan)
 
 ## Phase 1: Spike, a working code flow
 
 Goal: a real relying party signs in through Tunnus and receives `groups`.
 
-- [ ] Express 5 app mounting `oidc-provider` under the issuer's path
-- [ ] Config loader with validation (`ISSUER`, `DATABASE_URL`,
+- [x] Express 5 app mounting `oidc-provider` under the issuer's path
+- [x] Config loader with validation (`ISSUER`, `DATABASE_URL`,
       `CLIENTS_FILE`, secrets)
-- [ ] Migration runner and first migration: `users`, `groups`,
+- [x] Migration runner and first migration: `users`, `groups`,
       `user_groups`, `oidc_payloads`, `signing_keys`, `schema_migrations`
-- [ ] PostgreSQL adapter for `oidc-provider`
-- [ ] Signing key generated on first start, stored encrypted, served in
+- [x] PostgreSQL adapter for `oidc-provider`
+- [x] Signing key generated on first start, stored encrypted, served in
       JWKS (RS256)
-- [ ] `findAccount` and claims: `sub`, `email`, `email_verified`, `name`,
+- [x] `findAccount` and claims: `sub`, `email`, `email_verified`, `name`,
       `groups`; `conformIdTokenClaims: false`
-- [ ] Clients loaded from `CLIENTS_FILE` (`client_secret_basic` and
+- [x] Clients loaded from `CLIENTS_FILE` (`client_secret_basic` and
       `client_secret_post`, redirect and post-logout URIs, `first_party`,
       `always_include_groups`)
-- [ ] Minimal interaction pages: email, code, consent; codes printed to
-      the console sender
-- [ ] Path-prefixed issuer works behind a proxy without prefix stripping
-- [ ] End-to-end test with `openid-client`: authorize with PKCE, token,
+- [x] Minimal interaction pages: email, code, consent; codes printed to
+      the console sender; in the spike codes are held in memory (moved to
+      `email_codes` in phase 2)
+- [x] Path-prefixed issuer works behind a proxy without prefix stripping
+- [x] End-to-end test with `openid-client`: authorize with PKCE, token,
       ID token validation, userinfo, logout
-- [ ] Manual check against one existing OIDC client app
+- [ ] Manual check against one existing OIDC client app (the automated
+      flow test uses `openid-client` as a real relying party)
 
 ## Phase 2: Accounts and email
 
@@ -45,12 +47,14 @@ Goal: a real relying party signs in through Tunnus and receives `groups`.
       hashed, 10-minute expiry, 5 attempts, single use
 - [ ] Mail senders: console, SMTP (Nodemailer), Brevo; templates in
       `fi`, `sv`, `en`
-- [ ] Sign-up limited to `SIGNUP_EMAIL_DOMAINS`; admin-created users
-      allowed from any domain
+- [ ] Sign-up limited by `SIGNUP_EMAIL_ALLOW` / `SIGNUP_EMAIL_DENY` rules
+      (module and tests in `src/emailRules.js`); admin-created users
+      allowed from any address
 - [ ] Same response for known and unknown addresses
 - [ ] Link opens a confirmation page; sign-in only on `POST`; link in
       another browser shows the code instead
-- [ ] Display-name step for new users; join `DEFAULT_GROUPS`
+- [ ] Display-name step for new users, prefilled from the email local part
+      and editable; join `DEFAULT_GROUPS`
 - [ ] Existing session: "Continue as <account>" / "Sign in with another
       account"; honour `prompt=none` and `prompt=login`
 - [ ] Sliding session (`SESSION_TTL_DAYS`)
@@ -98,7 +102,10 @@ Goal: a real relying party signs in through Tunnus and receives `groups`.
 - [ ] `<issuer>/health` with database and key status
 - [ ] Prometheus `/metrics` behind `METRICS_BEARER_TOKEN`: sign-ins,
       sign-ups, failed codes, mail errors, rate-limit hits
-- [ ] Audit retention cleanup job
+- [ ] Audit retention cleanup job; strip audit IPs after `AUDIT_IP_RETENTION_DAYS`
+- [ ] Inactive-user job: warning email at `INACTIVE_USER_WARN_DAYS` before
+      deletion, delete after `INACTIVE_USER_DELETE_DAYS`
+- [ ] Privacy notice page rendered from `CONTROLLER_*` and `PROCESSORS` env
 - [ ] Expired `oidc_payloads` and `email_codes` cleanup job
 - [ ] Image published to GHCR from CI on tags
 - [ ] Deployment guide: reverse proxy with a path prefix, database,

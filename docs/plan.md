@@ -19,7 +19,7 @@ This document is the design rationale. The phased build list lives in
   with PKCE, discovery, JWKS, userinfo, RP-initiated logout, refresh tokens.
 - Passwordless sign-in by an emailed one-time code (or a link to the same
   code).
-- Self-service sign-up limited to configured email domains.
+- Self-service sign-up limited by configurable email address rules (allow and deny patterns).
 - Groups: default groups every user joins at sign-up, and other groups
   granted by an administrator. Groups are emitted in the `groups` claim.
 - Administration through an HTTP API described by OpenAPI, with a CLI and
@@ -44,16 +44,16 @@ This document is the design rationale. The phased build list lives in
 
 ## Architecture
 
-| Part | Choice | Why |
-| --- | --- | --- |
-| Runtime | Node.js 24, ESM only | Current LTS |
-| Protocol | [`oidc-provider`](https://github.com/panva/node-oidc-provider) | Certified OpenID Provider library; we write only accounts, interactions and storage glue |
-| Web | Express 5, server-rendered HTML for end-user pages only | Email, code, account choice, consent and logout are a few small forms; no front-end build step |
-| Storage | PostgreSQL 16, `pg`, plain SQL migrations | Survives restarts, no Redis; one database per deployment |
-| Email | Pluggable sender: SMTP (Nodemailer) and Brevo transactional API; a console sender for development | Small deployments already have one of these |
-| Logging | Pino, structured JSON | |
-| Metrics | Prometheus `/metrics` behind a bearer token | |
-| Packaging | Multi-stage Dockerfile, non-root user, health check | |
+| Part      | Choice                                                                                            | Why                                                                                            |
+| --------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Runtime   | Node.js 24, ESM only                                                                              | Current LTS                                                                                    |
+| Protocol  | [`oidc-provider`](https://github.com/panva/node-oidc-provider)                                    | Certified OpenID Provider library; we write only accounts, interactions and storage glue       |
+| Web       | Express 5, server-rendered HTML for end-user pages only                                           | Email, code, account choice, consent and logout are a few small forms; no front-end build step |
+| Storage   | PostgreSQL 16, `pg`, plain SQL migrations                                                         | Survives restarts, no Redis; one database per deployment                                       |
+| Email     | Pluggable sender: SMTP (Nodemailer) and Brevo transactional API; a console sender for development | Small deployments already have one of these                                                    |
+| Logging   | Pino, structured JSON                                                                             |                                                                                                |
+| Metrics   | Prometheus `/metrics` behind a bearer token                                                       |                                                                                                |
+| Packaging | Multi-stage Dockerfile, non-root user, health check                                               |                                                                                                |
 
 ### Issuer and path prefix
 
@@ -76,17 +76,17 @@ by a provider name plus `sub` keep working.
 
 ## Data model
 
-| Table | Key columns | Notes |
-| --- | --- | --- |
-| `users` | `id` uuid (= `sub`), `email` unique lowercase, `display_name`, `status` active/disabled, `is_admin`, `created_at`, `last_login_at` | |
-| `groups` | `id`, `name` unique, `description` | Groups in `DEFAULT_GROUPS` are created at start and cannot be deleted |
-| `user_groups` | `user_id`, `group_id`, `granted_by`, `granted_at` | Default groups are added at sign-up; others only by an admin |
-| `email_codes` | `id`, `email`, `code_hash`, `link_token_hash`, `purpose` signup/login, `interaction_uid`, `attempts`, `expires_at`, `consumed_at` | |
-| `oidc_payloads` | `id`, `type`, `payload` jsonb, `grant_id`, `uid`, `user_code`, `expires_at`, `consumed_at` | The `oidc-provider` adapter: sessions, interactions, codes, tokens and grants in one table |
-| `signing_keys` | `kid`, `alg`, `private_jwk` encrypted, `status` next/active/retired, `created_at`, `activated_at`, `retired_at` | Encrypted with a key from the environment |
-| `admin_tokens` | `id`, `user_id`, `token_hash`, `label`, `expires_at`, `last_used_at`, `revoked_at` | For the CLI and MCP server; tied to a user with `is_admin` |
-| `audit_events` | `id`, `at`, `actor_user_id`, `action`, `target_type`, `target_id`, `ip`, `details` jsonb | Append-only; no email addresses or codes in `details` |
-| `schema_migrations` | `name`, `applied_at` | |
+| Table               | Key columns                                                                                                                        | Notes                                                                                      |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `users`             | `id` uuid (= `sub`), `email` unique lowercase, `display_name`, `status` active/disabled, `is_admin`, `created_at`, `last_login_at` |                                                                                            |
+| `groups`            | `id`, `name` unique, `description`                                                                                                 | Groups in `DEFAULT_GROUPS` are created at start and cannot be deleted                      |
+| `user_groups`       | `user_id`, `group_id`, `granted_by`, `granted_at`                                                                                  | Default groups are added at sign-up; others only by an admin                               |
+| `email_codes`       | `id`, `email`, `code_hash`, `link_token_hash`, `purpose` signup/login, `interaction_uid`, `attempts`, `expires_at`, `consumed_at`  |                                                                                            |
+| `oidc_payloads`     | `id`, `type`, `payload` jsonb, `grant_id`, `uid`, `user_code`, `expires_at`, `consumed_at`                                         | The `oidc-provider` adapter: sessions, interactions, codes, tokens and grants in one table |
+| `signing_keys`      | `kid`, `alg`, `private_jwk` encrypted, `status` next/active/retired, `created_at`, `activated_at`, `retired_at`                    | Encrypted with a key from the environment                                                  |
+| `admin_tokens`      | `id`, `user_id`, `token_hash`, `label`, `expires_at`, `last_used_at`, `revoked_at`                                                 | For the CLI and MCP server; tied to a user with `is_admin`                                 |
+| `audit_events`      | `id`, `at`, `actor_user_id`, `action`, `target_type`, `target_id`, `ip`, `details` jsonb                                           | Append-only; no email addresses or codes in `details`                                      |
+| `schema_migrations` | `name`, `applied_at`                                                                                                               |                                                                                            |
 
 Clients are declared in a JSON file (`CLIENTS_FILE`) in the first version.
 A deployment typically has a few clients that change only with deploys.
@@ -95,12 +95,12 @@ file itself can be committed to a private config repository.
 
 ### Claims
 
-| Scope | Claims |
-| --- | --- |
-| `openid` | `sub` |
-| `email` | `email`, `email_verified` (always `true`) |
-| `profile` | `name` |
-| `groups` | `groups`: array of group names, e.g. `["staff", "team/alpha"]` |
+| Scope     | Claims                                                         |
+| --------- | -------------------------------------------------------------- |
+| `openid`  | `sub`                                                          |
+| `email`   | `email`, `email_verified` (always `true`)                      |
+| `profile` | `name`                                                         |
+| `groups`  | `groups`: array of group names, e.g. `["staff", "team/alpha"]` |
 
 Group names are plain strings with no leading slash. `/` may be used as a
 separator by convention (for example `team/alpha`), but Tunnus gives it no
@@ -124,8 +124,10 @@ Sign-in and sign-up are the same flow.
    with an authorization code. A client can skip this page with
    `prompt=none`, or force a fresh sign-in with `prompt=login`.
 3. Otherwise Tunnus asks for an email address. Sign-up is allowed only for
-   domains in `SIGNUP_EMAIL_DOMAINS`; a user created by an admin may have
-   any address. The response is the same whether the address is known or
+   addresses matching `SIGNUP_EMAIL_ALLOW` and not matching
+   `SIGNUP_EMAIL_DENY` (patterns use `*` as a wildcard, case-insensitive,
+   matched against the whole address); a user created by an admin may
+   have any address. The response is the same whether the address is known or
    not, to avoid account enumeration.
 4. Tunnus emails a 6-digit code and a link carrying a separate one-time
    token.
@@ -179,44 +181,73 @@ The first admin is created inside the container with a one-off command
 
 ## Security
 
-| Area | Plan |
-| --- | --- |
-| Codes | 6 digits from a CSPRNG, stored as a hash, valid 10 minutes, 5 wrong attempts invalidate the code, single use |
-| Rate limits | Per IP and per email address: code emails and attempts per hour, configurable; a daily cap on outgoing mail as a backstop |
-| Tokens | Authorization code 60 s, access token 10 min, refresh token 30 days with rotation, only for clients allowed `offline_access` |
+| Area         | Plan                                                                                                                                                                                                    |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codes        | 6 digits from a CSPRNG, stored as a hash, valid 10 minutes, 5 wrong attempts invalidate the code, single use                                                                                            |
+| Rate limits  | Per IP and per email address: code emails and attempts per hour, configurable; a daily cap on outgoing mail as a backstop                                                                               |
+| Tokens       | Authorization code 60 s, access token 10 min, refresh token 30 days with rotation, only for clients allowed `offline_access`                                                                            |
 | Signing keys | RS256 by default (widest client support). One `active` and one `next` key, both published in JWKS. Rotation promotes `next`, creates a new `next`, and keeps the retired key in JWKS for a grace period |
-| Key storage | Private keys encrypted at rest with `KEY_ENCRYPTION_SECRET` |
-| Cookies | `Secure`, `HttpOnly`, `SameSite=Lax`, scoped to the issuer path, signed with `COOKIE_SECRETS` (a list, so it can rotate) |
-| Clients | Confidential clients use `client_secret_basic` or `client_secret_post`, set per client; public clients must use PKCE |
-| Admin API | Admin tokens only; no cookie auth, so no CSRF surface |
-| Audit | Sign-in, sign-up, failed codes, rate-limit hits, admin actions, key rotations; retention configurable (default 365 days) |
-| Privacy | Stores only email, display name, group membership and audit metadata. Deleting a user removes the user row; audit rows keep only the `sub` |
-| Headers | Strict CSP with no inline scripts, HSTS, `frame-ancestors 'none'` |
+| Key storage  | Private keys encrypted at rest with `KEY_ENCRYPTION_SECRET`                                                                                                                                             |
+| Cookies      | `Secure`, `HttpOnly`, `SameSite=Lax`, scoped to the issuer path, signed with `COOKIE_SECRETS` (a list, so it can rotate)                                                                                |
+| Clients      | Confidential clients use `client_secret_basic` or `client_secret_post`, set per client; public clients must use PKCE                                                                                    |
+| Admin API    | Admin tokens only; no cookie auth, so no CSRF surface                                                                                                                                                   |
+| Audit        | Sign-in, sign-up, failed codes, rate-limit hits, admin actions, key rotations; retention configurable (default 365 days)                                                                                |
+| Privacy      | Stores only email, display name, group membership and audit metadata. Deleting a user removes the user row; audit rows keep only the `sub`. See [Personal data](#personal-data)                         |
+| Headers      | Strict CSP with no inline scripts, HSTS, `frame-ancestors 'none'`                                                                                                                                       |
 
 ## Configuration
 
 All settings come from environment variables; `.env.example` documents
 them.
 
-| Variable | Purpose |
-| --- | --- |
-| `ISSUER` | Full issuer URL, may include a path |
-| `DATABASE_URL` | PostgreSQL connection |
-| `SIGNUP_EMAIL_DOMAINS` | Comma-separated domains allowed to self-register; empty closes sign-up |
-| `DEFAULT_GROUPS` | Comma-separated groups every new user joins |
-| `CLIENTS_FILE` | Path to the clients JSON file |
-| `KEY_ENCRYPTION_SECRET` | Encrypts signing keys at rest |
-| `COOKIE_SECRETS` | Comma-separated cookie signing keys, newest first |
-| `MAIL_PROVIDER` | `smtp`, `brevo` or `console` |
-| `MAIL_FROM`, `SMTP_URL`, `BREVO_API_KEY` | Mail settings |
-| `SESSION_TTL_DAYS` | Sliding Tunnus session length (default 14) |
-| `BRAND_NAME`, `BRAND_LOGO_URL`, `BRAND_COLOR`, `PRIVACY_NOTICE_URL` | Branding of the end-user pages |
-| `DEFAULT_LOCALE` | `fi`, `sv` or `en` |
-| `METRICS_BEARER_TOKEN` | Enables `/metrics` |
-| `TRUST_PROXY` | Express proxy trust setting for correct client IPs |
+| Variable                                                            | Purpose                                                                                                                   |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `ISSUER`                                                            | Full issuer URL, may include a path                                                                                       |
+| `DATABASE_URL`                                                      | PostgreSQL connection                                                                                                     |
+| `SIGNUP_EMAIL_ALLOW`                                                | Comma-separated address patterns allowed to self-register, e.g. `*@example.org`; empty closes sign-up                     |
+| `SIGNUP_EMAIL_DENY`                                                 | Comma-separated address patterns refused at sign-up even if allowed, e.g. `ext-*@example.org`; deny wins                  |
+| `DEFAULT_GROUPS`                                                    | Comma-separated groups every new user joins                                                                               |
+| `CLIENTS_FILE`                                                      | Path to the clients JSON file                                                                                             |
+| `KEY_ENCRYPTION_SECRET`                                             | Encrypts signing keys at rest                                                                                             |
+| `COOKIE_SECRETS`                                                    | Comma-separated cookie signing keys, newest first                                                                         |
+| `MAIL_PROVIDER`                                                     | `smtp`, `brevo` or `console`                                                                                              |
+| `MAIL_FROM`, `SMTP_URL`, `BREVO_API_KEY`                            | Mail settings                                                                                                             |
+| `SESSION_TTL_DAYS`                                                  | Sliding Tunnus session length (default 14)                                                                                |
+| `BRAND_NAME`, `BRAND_LOGO_URL`, `BRAND_COLOR`, `PRIVACY_NOTICE_URL` | Branding of the end-user pages                                                                                            |
+| `DEFAULT_LOCALE`                                                    | `fi`, `sv` or `en`                                                                                                        |
+| `METRICS_BEARER_TOKEN`                                              | Enables `/metrics`                                                                                                        |
+| `TRUST_PROXY`                                                       | Express proxy trust setting for correct client IPs                                                                        |
+| `INACTIVE_USER_DELETE_DAYS`                                         | Delete accounts with no sign-in for this many days (default 730; `0` disables)                                            |
+| `INACTIVE_USER_WARN_DAYS`                                           | Email a warning this many days before deletion (default 30)                                                               |
+| `AUDIT_RETENTION_DAYS`                                              | Delete audit rows after this many days (default 365)                                                                      |
+| `AUDIT_IP_RETENTION_DAYS`                                           | Remove the IP address from audit rows after this many days (default 30)                                                   |
+| `CONTROLLER_NAME`, `CONTROLLER_CONTACT`, `DPO_CONTACT`              | Data controller identity and contact details shown in the privacy notice and mail footers                                 |
+| `PROCESSORS`                                                        | JSON list (or `PROCESSORS_FILE` path) of processors, each with `name`, `purpose`, `location`; shown in the privacy notice |
+
+## Personal data
+
+Tunnus stores an email address, a display name, group membership, sign-in
+times and audit metadata. Defaults, all configurable:
+
+- **Inactive accounts** are deleted after 730 days without a sign-in
+  (`INACTIVE_USER_DELETE_DAYS`). A warning email is sent 30 days before
+  (`INACTIVE_USER_WARN_DAYS`); signing in cancels the deletion.
+- **Audit rows** are kept 365 days (`AUDIT_RETENTION_DAYS`). The IP address
+  is removed from audit rows after 30 days (`AUDIT_IP_RETENTION_DAYS`).
+- **Display name** is prefilled from the email local part
+  (`firstname.lastname@example.org` becomes "Firstname Lastname") and the
+  user can edit it before the account is created and afterwards.
+- **Controller and processors** are not hardcoded. The controller's identity
+  and contact details, and the list of processors (mail provider, hosting),
+  come from environment variables and are rendered in the privacy notice
+  page and mail footers. The deployment decides who the controller is.
+- A privacy notice page is served at `<issuer>/privacy`; `PRIVACY_NOTICE_URL`
+  can point elsewhere instead.
 
 ## Operations
 
+- **Cleanup:** a daily job removes expired codes and payloads, warns and
+  deletes inactive users, strips old audit IPs and deletes old audit rows.
 - **Health:** `<issuer>/health` returns database and key status.
 - **Backups:** the deployment backs up the PostgreSQL database; Tunnus has
   no other state.
@@ -238,7 +269,7 @@ them.
 
 ## Open questions
 
-- Licence and whether the repository is public from the start.
+- Whether the repository is public from the start (licence: EUPL-1.2).
 - Default session length (14 days sliding is proposed).
 - Whether clients should move from a file to the database (and the admin
   API) once there are more than a handful.
