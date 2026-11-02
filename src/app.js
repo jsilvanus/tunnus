@@ -2,6 +2,7 @@ import express from 'express';
 import { createInteractionRouter } from './web/interactions.js';
 import { createProvider } from './oidc/provider.js';
 import { loadJwks } from './oidc/keys.js';
+import { securityHeaders } from './web/security.js';
 
 /**
  * Build the Express app. Everything is mounted under the issuer's path so a
@@ -16,6 +17,7 @@ export async function createApp({ config, pool, clients, mailer }) {
   app.disable('x-powered-by');
 
   const router = express.Router();
+  router.use(securityHeaders(config));
   router.use(createInteractionRouter({ config, pool, provider, mailer }));
   router.use(provider.callback());
   app.use(config.basePath || '/', router);

@@ -43,29 +43,29 @@ Goal: a real relying party signs in through Tunnus and receives `groups`.
 
 ## Phase 2: Accounts and email
 
-- [ ] `email_codes` table; 6-digit code and separate link token, both
+- [x] `email_codes` table; 6-digit code and separate link token, both
       hashed, 10-minute expiry, 5 attempts, single use
-- [ ] Mail senders: console, SMTP (Nodemailer), Brevo; templates in
+- [x] Mail senders: console, SMTP (Nodemailer), Brevo; templates in
       `fi`, `sv`, `en`
-- [ ] Sign-up limited by `SIGNUP_EMAIL_ALLOW` / `SIGNUP_EMAIL_DENY` rules
+- [x] Sign-up limited by `SIGNUP_EMAIL_ALLOW` / `SIGNUP_EMAIL_DENY` rules
       (module and tests in `src/emailRules.js`); admin-created users
       allowed from any address
-- [ ] Same response for known and unknown addresses
-- [ ] Link opens a confirmation page; sign-in only on `POST`; link in
+- [x] Same response for known and unknown addresses
+- [x] Link opens a confirmation page; sign-in only on `POST`; link in
       another browser shows the code instead
-- [ ] Display-name step for new users, prefilled from the email local part
+- [x] Display-name step for new users, prefilled from the email local part
       and editable; join `DEFAULT_GROUPS`
-- [ ] Existing session: "Continue as <account>" / "Sign in with another
+- [x] Existing session: "Continue as <account>" / "Sign in with another
       account"; honour `prompt=none` and `prompt=login`
-- [ ] Sliding session (`SESSION_TTL_DAYS`)
-- [ ] Rate limits per IP and per email; daily mail cap
-- [ ] `audit_events` table and audit writes for sign-in, sign-up,
+- [x] Sliding session (`SESSION_TTL_DAYS`)
+- [x] Rate limits per IP and per email; daily mail cap
+- [x] `audit_events` table and audit writes for sign-in, sign-up,
       failed codes, rate-limit hits
-- [ ] Disabled users cannot sign in
-- [ ] Branding and locale settings on all end-user pages
-- [ ] Security headers: CSP without inline scripts, HSTS,
+- [x] Disabled users cannot sign in
+- [x] Branding and locale settings on all end-user pages
+- [x] Security headers: CSP without inline scripts, HSTS,
       `frame-ancestors 'none'`
-- [ ] Tests for every rule above
+- [x] Tests for every rule above
 
 ## Phase 3: Admin API
 
