@@ -13,31 +13,33 @@ notes or deviations next to the item rather than deleting it.
 - [x] CI workflow: format, lint, typecheck, unit tests, integration tests
       against a Postgres service, Docker build
 - [x] README: what Tunnus is, quick start, configuration pointer
-- [ ] LICENSE (decide licence; open question in the plan)
+- [x] LICENSE (decide licence; open question in the plan)
 
 ## Phase 1: Spike, a working code flow
 
 Goal: a real relying party signs in through Tunnus and receives `groups`.
 
-- [ ] Express 5 app mounting `oidc-provider` under the issuer's path
-- [ ] Config loader with validation (`ISSUER`, `DATABASE_URL`,
+- [x] Express 5 app mounting `oidc-provider` under the issuer's path
+- [x] Config loader with validation (`ISSUER`, `DATABASE_URL`,
       `CLIENTS_FILE`, secrets)
-- [ ] Migration runner and first migration: `users`, `groups`,
+- [x] Migration runner and first migration: `users`, `groups`,
       `user_groups`, `oidc_payloads`, `signing_keys`, `schema_migrations`
-- [ ] PostgreSQL adapter for `oidc-provider`
-- [ ] Signing key generated on first start, stored encrypted, served in
+- [x] PostgreSQL adapter for `oidc-provider`
+- [x] Signing key generated on first start, stored encrypted, served in
       JWKS (RS256)
-- [ ] `findAccount` and claims: `sub`, `email`, `email_verified`, `name`,
+- [x] `findAccount` and claims: `sub`, `email`, `email_verified`, `name`,
       `groups`; `conformIdTokenClaims: false`
-- [ ] Clients loaded from `CLIENTS_FILE` (`client_secret_basic` and
+- [x] Clients loaded from `CLIENTS_FILE` (`client_secret_basic` and
       `client_secret_post`, redirect and post-logout URIs, `first_party`,
       `always_include_groups`)
-- [ ] Minimal interaction pages: email, code, consent; codes printed to
-      the console sender
-- [ ] Path-prefixed issuer works behind a proxy without prefix stripping
-- [ ] End-to-end test with `openid-client`: authorize with PKCE, token,
+- [x] Minimal interaction pages: email, code, consent; codes printed to
+      the console sender; in the spike codes are held in memory (moved to
+      `email_codes` in phase 2)
+- [x] Path-prefixed issuer works behind a proxy without prefix stripping
+- [x] End-to-end test with `openid-client`: authorize with PKCE, token,
       ID token validation, userinfo, logout
-- [ ] Manual check against one existing OIDC client app
+- [ ] Manual check against one existing OIDC client app (the automated
+      flow test uses `openid-client` as a real relying party)
 
 ## Phase 2: Accounts and email
 
