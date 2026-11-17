@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import pg from 'pg';
 import { readdirSync } from 'node:fs';
-import { createPool, migrate } from '../src/db.js';
+import { createPool, migrate, MIGRATION_LOCK_KEY } from '../src/db.js';
 
 describe('migrate under concurrency', () => {
   it('two runs at once both finish and apply each migration once', async () => {
@@ -20,12 +20,25 @@ describe('migrate under concurrency', () => {
         .sort();
       expect(rows.map((r) => r.name)).toEqual(files);
 
-      // The lock is released: a later run finds nothing to do and returns.
-      await migrate(pool);
-      const { rows: locks } = await pool.query(
-        "SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND granted",
-      );
-      expect(locks[0].n).toBe(0);
+      // The lock is released: a fresh session can take it within a few seconds. Advisory locks are
+      // database-wide, so other test files may hold it briefly; the retry loop allows for that.
+      const probe = new pg.Client({ connectionString: url });
+      await probe.connect();
+      try {
+        const deadline = Date.now() + 5000;
+        let acquired = false;
+        while (!acquired && Date.now() < deadline) {
+          const { rows: got } = await probe.query('SELECT pg_try_advisory_lock($1) AS ok', [
+            MIGRATION_LOCK_KEY,
+          ]);
+          acquired = got[0].ok === true;
+          if (!acquired) await new Promise((r) => setTimeout(r, 50));
+        }
+        expect(acquired).toBe(true);
+        await probe.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_KEY]);
+      } finally {
+        await probe.end();
+      }
     } finally {
       await pool.end();
     }
