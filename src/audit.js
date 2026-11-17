@@ -1,3 +1,14 @@
+/** @type {import('./metrics.js').Metrics | null} */
+let metrics = null;
+
+/**
+ * Set the metrics instance that counts audit events. One app sets it at startup.
+ * @param {import('./metrics.js').Metrics | null} instance
+ */
+export function setAuditMetrics(instance) {
+  metrics = instance;
+}
+
 /**
  * Append an audit event. `details` must never contain email addresses or codes.
  * @param {import('pg').Pool} pool
@@ -15,4 +26,5 @@ export async function audit(pool, event) {
       event.details ?? {},
     ],
   );
+  metrics?.countAuditAction(event.action, event.details);
 }

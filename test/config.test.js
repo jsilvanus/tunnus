@@ -45,3 +45,33 @@ describe('loadConfig admin and key settings', () => {
     expect(() => loadConfig({ ...MINIMAL, KEY_RETIRED_GRACE_DAYS: '-1' })).toThrow();
   });
 });
+
+describe('loadConfig metrics, cleanup and privacy settings', () => {
+  it('uses documented defaults', () => {
+    const config = loadConfig(MINIMAL);
+    expect(config.metricsBearerToken).toBe('');
+    expect(config.cleanup).toEqual({ disabled: false, startDelaySeconds: 60, intervalHours: 24 });
+    expect(config.privacy).toEqual({ dpoContact: '', processors: [] });
+  });
+  it('reads metrics token and cleanup overrides', () => {
+    const config = loadConfig({
+      ...MINIMAL,
+      METRICS_BEARER_TOKEN: 'metrics-token',
+      CLEANUP_DISABLED: 'true',
+      CLEANUP_START_DELAY_SECONDS: '0',
+      CLEANUP_INTERVAL_HOURS: '6',
+    });
+    expect(config.metricsBearerToken).toBe('metrics-token');
+    expect(config.cleanup).toEqual({ disabled: true, startDelaySeconds: 0, intervalHours: 6 });
+  });
+  it('only treats the exact string true as disabling cleanup', () => {
+    expect(loadConfig({ ...MINIMAL, CLEANUP_DISABLED: '1' }).cleanup.disabled).toBe(false);
+  });
+  it('rejects an interval below one hour and non-integers', () => {
+    expect(() => loadConfig({ ...MINIMAL, CLEANUP_INTERVAL_HOURS: '0' })).toThrow(
+      'CLEANUP_INTERVAL_HOURS must be at least 1',
+    );
+    expect(() => loadConfig({ ...MINIMAL, CLEANUP_INTERVAL_HOURS: '1.5' })).toThrow();
+    expect(() => loadConfig({ ...MINIMAL, CLEANUP_START_DELAY_SECONDS: '-5' })).toThrow();
+  });
+});

@@ -1,6 +1,12 @@
 name: publish-image
-# Manual: builds the Docker image and pushes it to GitHub Container Registry.
+# Builds the Docker image and pushes it to GitHub Container Registry.
+# Runs on version tags (v1.2.3) and on manual dispatch.
+# A tag v1.2.3 publishes 1.2.3, 1.2, sha-<short> and moves latest. A pre-release tag
+# (v1.2.3-rc.1) publishes 1.2.3-rc.1 and sha-<short> only.
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
@@ -25,19 +31,22 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Compute tags
-        id: tags
-        run: |
-          image="ghcr.io/${GITHUB_REPOSITORY,,}"
-          tags="$image:sha-${GITHUB_SHA::7}"
-          [ -n "${{ inputs.tag }}" ] && tags="$tags,$image:${{ inputs.tag }}"
-          [ "${{ inputs.latest }}" = "true" ] && tags="$tags,$image:latest"
-          echo "list=$tags" >> "$GITHUB_OUTPUT"
+      - name: Image tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref_name, '-') }}
+            type=sha,format=short
+            type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+            type=raw,value=latest,enable=${{ inputs.latest == true || (github.ref_type == 'tag' && !contains(github.ref_name, '-')) }}
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ steps.tags.outputs.list }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

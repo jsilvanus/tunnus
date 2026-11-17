@@ -16,6 +16,7 @@ export function esc(s) {
  */
 export function layout({ config, locale }, title, body) {
   const { brand } = config;
+  const privacyUrl = brand.privacyNoticeUrl || `${config.issuer}/privacy`;
   return `<!doctype html>
 <html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · ${esc(brand.name)}</title>
@@ -23,10 +24,12 @@ export function layout({ config, locale }, title, body) {
 button{background:${esc(brand.color)};color:#fff;border:0;padding:.6rem 1rem;border-radius:.3rem;font:inherit;cursor:pointer}
 button.secondary{background:none;color:inherit;text-decoration:underline;padding-left:0}
 input{font:inherit;padding:.5rem;width:100%;box-sizing:border-box;margin:.4rem 0 1rem}.err{color:#b00020}
-.code{font-size:2rem;letter-spacing:.3rem;font-weight:600}</style>
+.code{font-size:2rem;letter-spacing:.3rem;font-weight:600}
+table{border-collapse:collapse;width:100%}th,td{text-align:left;vertical-align:top;padding:.3rem .4rem;border-bottom:1px solid #ddd;overflow-wrap:anywhere}
+footer{margin-top:3rem;font-size:.875rem}footer a{color:inherit}</style>
 </head><body>${brand.logoUrl ? `<img src="${esc(brand.logoUrl)}" alt="" height="40">` : ''}
 <h1>${esc(brand.name)}</h1>${body}
-${brand.privacyNoticeUrl ? `<p><a href="${esc(brand.privacyNoticeUrl)}">${esc(t(locale, 'privacy'))}</a></p>` : ''}
+<footer><p><a href="${esc(privacyUrl)}">${esc(t(locale, 'footer_privacy'))}</a></p></footer>
 </body></html>`;
 }
 

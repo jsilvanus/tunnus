@@ -13,4 +13,8 @@ COPY migrations ./migrations
 COPY bin ./bin
 COPY openapi.yaml ./openapi.yaml
 USER node
+EXPOSE 3000
+STOPSIGNAL SIGTERM
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD ["node", "bin/healthcheck.js"]
 CMD ["node", "src/server.js"]
