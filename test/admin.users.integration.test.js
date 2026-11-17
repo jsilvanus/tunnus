@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as client from 'openid-client';
 import { ADMIN_EMAIL, startAdmin } from './helpers/admin.js';
 import { POST_LOGOUT, REDIRECT, browser } from './helpers/harness.js';
@@ -58,7 +58,9 @@ async function signIn(email, b = browser()) {
   const { page, verifier, state } = await t.startAuth(b, OFFLINE);
   const path = t.interactionPath(page.body);
   expect(path, page.body).toBeTruthy();
+  const before = t.mails.length;
   await b.post(`${t.origin}${path}/email`, { email });
+  await vi.waitFor(() => expect(t.mails.length).toBe(before + 1));
   const code = /** @type {any} */ (t.mails.at(-1)).code;
   let done = await b.post(`${t.origin}${path}/code`, { code });
   if (!done.finalUrl.startsWith(REDIRECT)) {

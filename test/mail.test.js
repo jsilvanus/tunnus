@@ -5,7 +5,9 @@ import {
   buildInactiveWarningMail,
   createBrevoTransport,
   createMailer,
+  MAIL_TIMEOUT_MS,
   parseFrom,
+  smtpTransportOptions,
 } from '../src/mail.js';
 
 const config = loadConfig({
@@ -108,6 +110,26 @@ describe('mail', () => {
     expect(JSON.parse(seen.init.body)).toMatchObject({
       sender: { email: 'a@example.org' },
       to: [{ email: 'b@example.org' }],
+    });
+  });
+
+  it('aborts a Brevo request after the mail timeout', async () => {
+    /** @type {any} */ let signal;
+    const transport = createBrevoTransport('key', 'a@example.org', async (_url, init) => {
+      signal = init?.signal;
+      return new Response('{}', { status: 201 });
+    });
+    await transport.send({ to: 'b@example.org', subject: 's', text: 't' });
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(MAIL_TIMEOUT_MS).toBe(10_000);
+  });
+
+  it('sets connect, greeting and socket timeouts on SMTP', () => {
+    expect(smtpTransportOptions('smtp://mail.example.org:587')).toEqual({
+      url: 'smtp://mail.example.org:587',
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 10_000,
     });
   });
 });

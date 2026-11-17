@@ -96,13 +96,30 @@ export function createConsoleTransport(logger) {
   };
 }
 
+/** Timeout for one call to the mail provider, in milliseconds. */
+export const MAIL_TIMEOUT_MS = 10_000;
+
+/**
+ * Nodemailer options for the SMTP transport: the URL plus connect, greeting and socket timeouts,
+ * so a hung server cannot hold a request open.
+ * @param {string} smtpUrl
+ */
+export function smtpTransportOptions(smtpUrl) {
+  return {
+    url: smtpUrl,
+    connectionTimeout: MAIL_TIMEOUT_MS,
+    greetingTimeout: MAIL_TIMEOUT_MS,
+    socketTimeout: MAIL_TIMEOUT_MS,
+  };
+}
+
 /**
  * @param {string} smtpUrl
  * @param {string} from
  * @returns {Transport}
  */
 export function createSmtpTransport(smtpUrl, from) {
-  const transporter = nodemailer.createTransport(smtpUrl);
+  const transporter = nodemailer.createTransport(smtpTransportOptions(smtpUrl));
   return {
     async send(message) {
       await transporter.sendMail({
@@ -139,6 +156,7 @@ export function createBrevoTransport(apiKey, from, fetchImpl = fetch) {
           subject: message.subject,
           textContent: message.text,
         }),
+        signal: AbortSignal.timeout(MAIL_TIMEOUT_MS),
       });
       if (!res.ok) throw new Error(`Brevo responded ${res.status}`);
     },

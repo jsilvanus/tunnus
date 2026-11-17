@@ -17,6 +17,24 @@ import {
 } from './pages.js';
 
 /**
+ * Send a mail without waiting for it. A failure is audited with the error name only: provider
+ * error text can contain the recipient address, and audit details must not hold one.
+ * @param {import('pg').Pool} pool
+ * @param {{ ip: string | null, kind: string, send: () => Promise<void> }} p
+ */
+export function sendInBackground(pool, { ip, kind, send }) {
+  void (async () => {
+    try {
+      await send();
+    } catch (err) {
+      const name = /** @type {any} */ (err)?.name;
+      const error = typeof name === 'string' ? name : 'Error';
+      await audit(pool, { action: 'mail_error', ip, details: { kind, error } }).catch(() => {});
+    }
+  })();
+}
+
+/**
  * End-user interaction pages: email, code, link, name, account choice and consent.
  * @param {{ config: import('../config.js').Config, pool: import('pg').Pool, getProvider: () => any, mailer: import('../mail.js').Mailer }} deps
  */
@@ -162,15 +180,12 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
       });
       if (issued.ok) {
         const link = `${config.issuer}/interaction/${d.uid}/link/${issued.linkToken}`;
-        try {
-          await mailer.sendCode(email, issued.code, link, ctx.locale);
-        } catch (err) {
-          await audit(pool, {
-            action: 'mail_error',
-            ip: req.ip,
-            details: { message: String(err) },
-          });
-        }
+        // Not awaited: the response must not reveal whether a mail was sent.
+        sendInBackground(pool, {
+          ip: req.ip ?? null,
+          kind: 'sign_in_code',
+          send: () => mailer.sendCode(email, issued.code, link, ctx.locale),
+        });
       } else {
         await audit(pool, {
           action: 'rate_limited',

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as client from 'openid-client';
 import { POST_LOGOUT, REDIRECT, browser, startTunnus } from './helpers/harness.js';
 
@@ -22,8 +22,10 @@ async function signInUntilCode(email, b = browser(), extra) {
   const { page, verifier, state } = await t.startAuth(b, extra);
   const path = t.interactionPath(page.body);
   expect(path, page.body).toBeTruthy();
+  const before = t.mails.length;
   const sent = await b.post(`${t.origin}${path}/email`, { email });
   expect(sent.res.status).toBe(200);
+  await vi.waitFor(() => expect(t.mails.length).toBe(before + 1));
   const mail = t.mails.at(-1);
   const done = await b.post(`${t.origin}${path}/code`, { code: /** @type {any} */ (mail).code });
   return {
@@ -115,7 +117,9 @@ describe('codes', () => {
     const b = browser();
     const { page } = await t.startAuth(b);
     const path = t.interactionPath(page.body);
+    const before = t.mails.length;
     await b.post(`${t.origin}${path}/email`, { email: 'lock.test@example.org' });
+    await vi.waitFor(() => expect(t.mails.length).toBe(before + 1));
     const good = /** @type {any} */ (t.mails.at(-1)).code;
     const bad = good === '000000' ? '111111' : '000000';
     for (let i = 0; i < 5; i++) {
@@ -154,7 +158,9 @@ describe('sign-in link', () => {
     const b = browser();
     const { page, verifier, state } = await t.startAuth(b);
     const path = t.interactionPath(page.body);
+    const before = t.mails.length;
     await b.post(`${t.origin}${path}/email`, { email: 'link.user@example.org' });
+    await vi.waitFor(() => expect(t.mails.length).toBe(before + 1));
     const link = /** @type {any} */ (t.mails.at(-1)).link;
     expect(link.startsWith(`${t.issuer}/interaction/`)).toBe(true);
 
@@ -175,7 +181,9 @@ describe('sign-in link', () => {
     const b = browser();
     const { page } = await t.startAuth(b);
     const path = t.interactionPath(page.body);
+    const before = t.mails.length;
     await b.post(`${t.origin}${path}/email`, { email: 'other.browser@example.org' });
+    await vi.waitFor(() => expect(t.mails.length).toBe(before + 1));
     const mail = /** @type {any} */ (t.mails.at(-1));
     const elsewhere = await browser().go(mail.link);
     expect(elsewhere.body).toContain(mail.code);

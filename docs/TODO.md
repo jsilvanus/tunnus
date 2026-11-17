@@ -144,9 +144,9 @@ From [`reviews/2026-11-17-code-review.md`](reviews/2026-11-17-code-review.md). I
 - [x] M4 `pool.on('error')`, pool and statement timeouts
 - [x] M5 Advisory lock around migrations
 - [x] M6 Sign-in limits: reserve for existing users, atomic count, lockout (per-IP interaction limit skipped: not required, the per-IP code limit already applies)
-- [ ] M7 Do not await mail send in `/email` (timing oracle)
-- [ ] M8 Timeouts for Brevo and SMTP sends
-- [ ] M9 Audit `err.name`, not `String(err)`, for mail errors
+- [x] M7 Do not await mail send in `/email` (timing oracle)
+- [x] M8 Timeouts for Brevo and SMTP sends
+- [x] M9 Audit `err.name`, not `String(err)`, for mail errors
 - [ ] M10 Request logging, error middleware, branded error page
 - [ ] L1 `email_verified` semantics and admin token model in `docs/security.md`
 - [ ] L2 `POST /continue` checks the session user is active

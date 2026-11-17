@@ -67,9 +67,9 @@ export function browser(lang = 'en') {
 
 /**
  * Start Tunnus on an ephemeral port in an isolated schema.
- * @param {{ schema: string, env?: Record<string, string>, clients?: Record<string, any>[] }} opts
+ * @param {{ schema: string, env?: Record<string, string>, clients?: Record<string, any>[], transport?: import('../../src/mail.js').Transport }} opts
  */
-export async function startTunnus({ schema, env = {}, clients }) {
+export async function startTunnus({ schema, env = {}, clients, transport }) {
   const admin = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await admin.connect();
   await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE; CREATE SCHEMA ${schema}`);
@@ -99,9 +99,7 @@ export async function startTunnus({ schema, env = {}, clients }) {
 
   /** @type {{ to: string, code: string, link: string, locale: string, text?: string }[]} */
   const mails = [];
-  const mailer = createMailer(config, {
-    send: async () => {},
-  });
+  const mailer = createMailer(config, transport ?? { send: async () => {} });
   const capturing = {
     /** @param {string} to @param {string} code @param {string} link @param {any} locale */
     async sendCode(to, code, link, locale) {
