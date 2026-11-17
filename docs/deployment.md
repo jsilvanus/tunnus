@@ -22,16 +22,18 @@ health check that calls `/health`.
 
 ## Required settings and secrets
 
-| Setting                                                                    | Notes                                                                                                                                              |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ISSUER`                                                                   | Public URL of the provider, for example `https://id.example.org` or `https://example.org/id`. No trailing slash. Every route lives under its path. |
-| `DATABASE_URL`                                                             | PostgreSQL 16 connection string.                                                                                                                   |
-| `KEY_ENCRYPTION_SECRET`                                                    | Encrypts the signing keys at rest. Keep it stable. Changing it makes the stored keys unreadable. Store it in a secret manager.                     |
-| `COOKIE_SECRETS`                                                           | Comma-separated cookie signing keys, newest first.                                                                                                 |
-| `CLIENTS_FILE`                                                             | JSON file with the registered clients. `${NAME}` values are read from the environment, so client secrets stay out of the file.                     |
-| `MAIL_PROVIDER`, `MAIL_FROM`, `SMTP_URL` or `BREVO_API_KEY`                | Sign-in codes are sent by mail. `console` is for development only: it logs the codes.                                                              |
-| `TRUST_PROXY`                                                              | Set it to the number of proxies in front of Tunnus (for example `1`), so client IP addresses are right for rate limits and audit.                  |
-| `CONTROLLER_NAME`, `CONTROLLER_CONTACT`, `PROCESSORS` or `PROCESSORS_FILE` | Shown in the privacy notice and mail footers. See [Privacy notice](#privacy-notice).                                                               |
+| Setting                                                                    | Notes                                                                                                                                                                                      |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ISSUER`                                                                   | Public URL of the provider, for example `https://id.example.org` or `https://example.org/id`. No trailing slash. Every route lives under its path.                                         |
+| `DATABASE_URL`                                                             | PostgreSQL 16 connection string.                                                                                                                                                           |
+| `KEY_ENCRYPTION_SECRET`                                                    | Encrypts the signing keys at rest. Keep it stable. Changing it makes the stored keys unreadable. Store it in a secret manager. At least 32 characters; the example placeholder is refused. |
+| `COOKIE_SECRETS`                                                           | Comma-separated cookie signing keys, newest first. Each item at least 16 characters; items starting with `change-me` are refused.                                                          |
+| `CLIENTS_FILE`                                                             | JSON file with the registered clients. `${NAME}` values are read from the environment, so client secrets stay out of the file.                                                             |
+| `MAIL_PROVIDER`, `MAIL_FROM`, `SMTP_URL` or `BREVO_API_KEY`                | Sign-in codes are sent by mail. `console` is for development only: it logs the codes. With an https `ISSUER` it is refused unless `ALLOW_CONSOLE_MAIL=true`.                               |
+| `ALLOW_CONSOLE_MAIL`                                                       | Set to `true` only to allow `MAIL_PROVIDER=console` (or unset) with an https `ISSUER`, for a non-production test instance.                                                                 |
+| `DB_POOL_MAX`                                                              | Maximum database connections per process (default `10`). Idle connection errors are logged, not fatal.                                                                                     |
+| `TRUST_PROXY`                                                              | Set it to the number of proxies in front of Tunnus (for example `1`), so client IP addresses are right for rate limits and audit.                                                          |
+| `CONTROLLER_NAME`, `CONTROLLER_CONTACT`, `PROCESSORS` or `PROCESSORS_FILE` | Shown in the privacy notice and mail footers. See [Privacy notice](#privacy-notice).                                                                                                       |
 
 ### Rotating cookie secrets
 

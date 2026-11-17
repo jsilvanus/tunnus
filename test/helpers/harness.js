@@ -84,8 +84,8 @@ export async function startTunnus({ schema, env = {}, clients }) {
   const config = loadConfig({
     ISSUER: issuer,
     DATABASE_URL: /** @type {string} */ (process.env.DATABASE_URL),
-    KEY_ENCRYPTION_SECRET: 'test-secret',
-    COOKIE_SECRETS: 'cookie-secret',
+    KEY_ENCRYPTION_SECRET: 'test-key-encryption-secret-0123456789',
+    COOKIE_SECRETS: 'cookie-secret-0123',
     SIGNUP_EMAIL_ALLOW: '*@example.org',
     SIGNUP_EMAIL_DENY: 'ext-*@example.org',
     DEFAULT_GROUPS: 'all',

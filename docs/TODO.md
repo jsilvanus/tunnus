@@ -137,12 +137,12 @@ Design: [`production.md`](production.md).
 
 From [`reviews/2026-11-17-code-review.md`](reviews/2026-11-17-code-review.md). IDs refer to that file.
 
-- [ ] H1 `TRUST_PROXY=1` must become a number (rate limits and audit IPs are wrong behind a proxy)
-- [ ] M1 Refuse `MAIL_PROVIDER=console` in production
-- [ ] M2 Validate secrets (length, placeholders); derive a subkey per purpose
-- [ ] M3 Cache the derived key; no `scryptSync` per encrypt/decrypt
-- [ ] M4 `pool.on('error')`, pool and statement timeouts
-- [ ] M5 Advisory lock around migrations
+- [x] H1 `TRUST_PROXY=1` must become a number (rate limits and audit IPs are wrong behind a proxy)
+- [x] M1 Refuse `MAIL_PROVIDER=console` in production
+- [x] M2 Validate secrets (length, placeholders); derive a subkey per purpose
+- [x] M3 Cache the derived key; no `scryptSync` per encrypt/decrypt
+- [x] M4 `pool.on('error')`, pool and statement timeouts
+- [x] M5 Advisory lock around migrations
 - [ ] M6 Sign-in limits: per-IP interaction limit, reserve for existing users, atomic count
 - [ ] M7 Do not await mail send in `/email` (timing oracle)
 - [ ] M8 Timeouts for Brevo and SMTP sends

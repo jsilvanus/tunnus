@@ -443,8 +443,9 @@ describe('tunnus-admin cleanup', () => {
       PATH: process.env.PATH ?? '',
       DATABASE_URL: url.href,
       ISSUER: 'https://id.example.org',
-      KEY_ENCRYPTION_SECRET: 'cli-secret',
-      COOKIE_SECRETS: 'cli-cookie',
+      KEY_ENCRYPTION_SECRET: 'test-key-encryption-secret-0123456789',
+      COOKIE_SECRETS: 'cookie-secret-0123',
+      ALLOW_CONSOLE_MAIL: 'true',
       ...env,
     };
     return new Promise((resolve) => {
