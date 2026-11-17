@@ -1,4 +1,8 @@
-import { createUser, revokeUserSessions as revokeSessionRows } from '../../accounts.js';
+import {
+  createUser,
+  deleteUserAccount,
+  revokeUserSessions as revokeSessionRows,
+} from '../../accounts.js';
 import { AdminError } from '../errors.js';
 import { page } from '../paging.js';
 import { userJson, USER_GROUP_BY, USER_SELECT } from '../serialize.js';
@@ -229,8 +233,7 @@ export const handlers = {
       const user = rows[0];
       if (!user) throw notFound('User not found');
       if (user.status === 'active' && user.is_admin) assertOtherAdminRemains(activeAdmins, userId);
-      await revokeSessionRows(client, userId);
-      await client.query('DELETE FROM users WHERE id = $1', [userId]);
+      await deleteUserAccount(client, userId);
     });
     return { status: 204, audit: { targetType: 'user', targetId: userId } };
   },

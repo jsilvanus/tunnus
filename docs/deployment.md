@@ -160,7 +160,8 @@ Cleanup removes data that is no longer needed. It runs in one of two ways.
   ```
 
   It runs migrations first, runs all tasks once and prints the counts as JSON on
-  stdout.
+  stdout. It exits `1` when a task failed (the JSON is still printed), `0` otherwise,
+  including when another run holds the lock (`{ "skipped": true }`).
 
 With several replicas, only one run proceeds at a time: each run takes a
 PostgreSQL advisory lock, and a run that cannot get it is skipped.
@@ -182,12 +183,17 @@ warning is sent `INACTIVE_USER_WARN_DAYS` (default 30) before deletion, and
 signing in cancels it. Deletion happens after `INACTIVE_USER_DELETE_DAYS`
 (default 730) without a sign-in.
 
+Warnings are capped at `MAIL_DAILY_CAP` per run. They are not counted against the
+sign-in code limit, which counts only sign-in codes. Each warning is sent in the
+default locale, with the deletion date in UTC (`YYYY-MM-DD`).
+
 Setting `INACTIVE_USER_DELETE_DAYS=0` turns off warnings and deletion. Setting
 `AUDIT_RETENTION_DAYS=0` or `AUDIT_IP_RETENTION_DAYS=0` turns off that audit
 task. Zero never means "delete everything".
 
-Each run is audited as `cleanup.run` with the counts. A complete run updates
-`tunnus_cleanup_last_success_timestamp_seconds`.
+Each run is audited as `cleanup.run` with the counts. A run in which no task failed
+updates `tunnus_cleanup_last_success_timestamp_seconds`. A mail that fails to send is
+retried by the next run and does not count as a failed task.
 
 ## Privacy notice
 

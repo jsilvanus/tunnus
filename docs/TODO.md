@@ -106,20 +106,23 @@ Goal: a real relying party signs in through Tunnus and receives `groups`.
 
 Design: [`production.md`](production.md).
 
-- [ ] Multi-stage Dockerfile, non-root user, `HEALTHCHECK`
-- [ ] `<issuer>/health` with database and key status
-- [ ] Prometheus `/metrics` behind `METRICS_BEARER_TOKEN`: sign-ins,
+- [x] Multi-stage Dockerfile, non-root user, `HEALTHCHECK`
+- [x] `<issuer>/health` with database and key status
+- [x] Prometheus `/metrics` behind `METRICS_BEARER_TOKEN`: sign-ins,
       sign-ups, failed codes, mail errors, rate-limit hits
-- [ ] Audit retention cleanup job; strip audit IPs after `AUDIT_IP_RETENTION_DAYS`
-- [ ] Inactive-user job: warning email at `INACTIVE_USER_WARN_DAYS` before
-      deletion, delete after `INACTIVE_USER_DELETE_DAYS`
-- [ ] Privacy notice page rendered from `CONTROLLER_*` and `PROCESSORS` env
-- [ ] Expired `oidc_payloads` and `email_codes` cleanup job
-- [ ] Image published to GHCR from CI on tags
-- [ ] Deployment guide: reverse proxy with a path prefix, database,
+- [x] Audit retention cleanup job; strip audit IPs after `AUDIT_IP_RETENTION_DAYS`
+- [x] Inactive-user job: warning email at `INACTIVE_USER_WARN_DAYS` before
+      deletion, delete after `INACTIVE_USER_DELETE_DAYS`. Note: warnings are
+      capped at `MAIL_DAILY_CAP` per run, not counted against the sign-in
+      code limit
+- [x] Privacy notice page rendered from `CONTROLLER_*` and `PROCESSORS` env
+- [x] Expired `oidc_payloads` and `email_codes` cleanup job
+- [x] Image published to GHCR from CI on tags. Note: not yet run
+- [x] Deployment guide: reverse proxy with a path prefix, database,
       backups, key rotation schedule
-- [ ] Privacy notice template and data-retention notes
+- [x] Privacy notice template and data-retention notes
 - [ ] OpenID conformance suite, basic OP profile, against a test instance
+      Note: manual; see docs/conformance.md
 
 ## Later
 

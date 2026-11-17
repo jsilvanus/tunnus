@@ -5,6 +5,7 @@ import { createPool, migrate } from './db.js';
 import { ensureDefaultGroups } from './accounts.js';
 import { ensureSigningKey } from './oidc/keys.js';
 import { createMailerFromConfig } from './mail.js';
+import { startCleanupScheduler } from './jobs/scheduler.js';
 
 const SHUTDOWN_GRACE_MS = 10_000;
 
@@ -15,13 +16,15 @@ await migrate(pool);
 await ensureDefaultGroups(pool, config.defaultGroups);
 await ensureSigningKey(pool, config.keyEncryptionSecret);
 
-const { app, holder } = await createApp({
+const mailer = createMailerFromConfig(config, logger);
+const { app, holder, metrics } = await createApp({
   config,
   pool,
   clients: loadClients(config.clientsFile),
-  mailer: createMailerFromConfig(config, logger),
+  mailer,
 });
 holder.start();
+const cleanup = startCleanupScheduler({ config, pool, mailer, logger, metrics });
 const server = app.listen(config.port, () =>
   logger.info({ issuer: config.issuer, port: config.port }, 'tunnus listening'),
 );
@@ -40,13 +43,18 @@ async function shutdown(signal) {
   }
   shuttingDown = true;
   logger.info({ signal }, 'shutting down');
-  // TODO(cleanup): stop the job scheduler here once it exists.
   holder.stop();
+  const cleanupDone = cleanup.stop();
 
   const closed = new Promise((resolve) => server.close(resolve));
   const forced = setTimeout(() => server.closeAllConnections(), SHUTDOWN_GRACE_MS);
   await closed;
   clearTimeout(forced);
+  // A cleanup run in progress gets the same grace period before the pool closes.
+  await Promise.race([
+    cleanupDone,
+    new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS).unref()),
+  ]);
 
   try {
     await pool.end();

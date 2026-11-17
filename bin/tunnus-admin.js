@@ -1,22 +1,66 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
+import pino from 'pino';
 import { ensureDefaultGroups } from '../src/accounts.js';
 import { bootstrapAdmin, BootstrapInputError, validateBootstrapInput } from '../src/bootstrap.js';
-import { parseList } from '../src/config.js';
+import { loadConfig, parseList } from '../src/config.js';
 import { createPool, migrate } from '../src/db.js';
+import { runCleanup } from '../src/jobs/cleanup.js';
+import { createMailerFromConfig } from '../src/mail.js';
 
 const USAGE = `Usage:
   tunnus-admin bootstrap --email <address> [--name <display name>]
                          [--label <label>] [--expires-days <1-365>]
+  tunnus-admin cleanup
   tunnus-admin --help
 
-Creates the first admin (or promotes an existing user) and prints an admin
-token on stdout. The token is shown only once. Reads DATABASE_URL and
+bootstrap creates the first admin (or promotes an existing user) and prints an
+admin token on stdout. The token is shown only once. Reads DATABASE_URL and
 DEFAULT_GROUPS from the environment.
+
+cleanup runs every cleanup task once (migrations first, same lock as the
+in-process job) and prints the counts as JSON on stdout. It exits 0 when the
+run completed or another run holds the lock, and 1 when a task failed. Reads the
+full server configuration from the environment.
 
 Inside the container:
   docker compose exec app node bin/tunnus-admin.js bootstrap --email admin@example.org
+  docker compose exec app node bin/tunnus-admin.js cleanup
 `;
+
+/**
+ * Run the cleanup tasks once. Logs go to stderr so that stdout holds only the JSON result.
+ * @param {NodeJS.ProcessEnv} env
+ * @param {{ out: { write(s: string): unknown }, err: { write(s: string): unknown } }} io
+ * @returns {Promise<number>}
+ */
+async function cleanupCommand(env, io) {
+  let config;
+  try {
+    config = loadConfig(env);
+  } catch (/** @type {any} */ err) {
+    io.err.write(`${err.message}\n`);
+    return 1;
+  }
+  const logger = pino({}, io.err);
+  const pool = createPool(config.databaseUrl);
+  try {
+    await migrate(pool);
+    const result = await runCleanup({
+      pool,
+      config,
+      mailer: createMailerFromConfig(config, logger),
+      logger,
+    });
+    io.out.write(`${JSON.stringify(result)}\n`);
+    return 'skipped' in result || result.errors.length === 0 ? 0 : 1;
+  } catch (/** @type {any} */ err) {
+    io.err.write(`Cleanup failed: ${err.message}\n`);
+    return 1;
+  } finally {
+    await pool.end();
+  }
+}
 
 /**
  * @param {string[]} argv
@@ -47,10 +91,11 @@ async function main(argv, env, io) {
     io.out.write(USAGE);
     return 0;
   }
-  if (positionals.length !== 1 || positionals[0] !== 'bootstrap') {
-    io.err.write(`Expected the bootstrap command.\n\n${USAGE}`);
+  if (positionals.length !== 1 || !['bootstrap', 'cleanup'].includes(positionals[0])) {
+    io.err.write(`Expected the bootstrap or cleanup command.\n\n${USAGE}`);
     return 2;
   }
+  if (positionals[0] === 'cleanup') return cleanupCommand(env, io);
   if (!values.email) {
     io.err.write(`--email is required.\n\n${USAGE}`);
     return 2;

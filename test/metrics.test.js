@@ -127,9 +127,17 @@ describe('audit action counters', () => {
     expect(sample(text, 'tunnus_rate_limit_hits_total{reason="other"}')).toBe(2);
   });
 
+  it('counts "Continue as" sign-ins with the other sign-ins', async () => {
+    const metrics = createMetrics();
+    metrics.countAuditAction('signin');
+    metrics.countAuditAction('signin_continue');
+    const text = await metrics.registry.metrics();
+    expect(sample(text, 'tunnus_sign_ins_total')).toBe(2);
+  });
+
   it('ignores unrelated actions', async () => {
     const metrics = createMetrics();
-    metrics.countAuditAction('signin_continue');
+    metrics.countAuditAction('cleanup.run', { payloads: 3 });
     metrics.countAuditAction('something.else');
     const text = await metrics.registry.metrics();
     expect(sample(text, 'tunnus_sign_ins_total')).toBe(0);

@@ -4,6 +4,7 @@ import { createProviderHolder } from './oidc/providerHolder.js';
 import { securityHeaders } from './web/security.js';
 import { createAdminRouter } from './admin/router.js';
 import { createHealthRouter, PACKAGE_VERSION } from './health.js';
+import { createPrivacyRouter } from './web/privacy.js';
 import { createMetrics } from './metrics.js';
 import { setAuditMetrics } from './audit.js';
 
@@ -26,6 +27,7 @@ export async function createApp({ config, pool, clients, mailer }, options = {})
   router.use(securityHeaders(config));
   router.use(createHealthRouter({ pool, version: PACKAGE_VERSION }));
   router.use(metrics.router({ pool, token: config.metricsBearerToken }));
+  router.use(createPrivacyRouter({ config }));
   router.use(createInteractionRouter({ config, pool, getProvider: () => holder.current, mailer }));
   router.use(
     '/admin/api/v1',

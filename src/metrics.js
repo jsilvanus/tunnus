@@ -112,6 +112,7 @@ export function createMetrics() {
   function countAuditAction(action, details = {}) {
     switch (action) {
       case 'signin':
+      case 'signin_continue':
         return signIns.inc();
       case 'signup':
         return signUps.inc();

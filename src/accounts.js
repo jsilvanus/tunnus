@@ -74,6 +74,19 @@ export async function revokeUserSessions(db, userId) {
 }
 
 /**
+ * Delete a user: end their sessions, then delete the row. Group memberships and admin tokens
+ * go with the row (ON DELETE CASCADE). The admin API and the inactivity cleanup both use it.
+ * @param {Queryable} db
+ * @param {string} userId
+ * @returns {Promise<number>} rows deleted (0 or 1)
+ */
+export async function deleteUserAccount(db, userId) {
+  await revokeUserSessions(db, userId);
+  const { rowCount } = await db.query('DELETE FROM users WHERE id = $1', [userId]);
+  return rowCount ?? 0;
+}
+
+/**
  * Create the configured default groups if they do not exist yet. Idempotent.
  * @param {import('pg').Pool} pool
  * @param {string[]} names

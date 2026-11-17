@@ -108,6 +108,11 @@ export async function startTunnus({ schema, env = {}, clients }) {
       mails.push({ to, code, link, locale });
       await mailer.sendCode(to, code, link, locale);
     },
+    /** @param {string} to @param {Date} deleteOn @param {any} locale */
+    async sendInactiveWarning(to, deleteOn, locale) {
+      mails.push({ to, code: '', link: '', locale, text: `deleted on ${deleteOn.toISOString()}` });
+      await mailer.sendInactiveWarning(to, deleteOn, locale);
+    },
   };
 
   const { app, holder } = await createApp(
