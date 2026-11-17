@@ -1,4 +1,4 @@
-import Provider from 'oidc-provider';
+import Provider, { interactionPolicy } from 'oidc-provider';
 import { createAdapterClass } from './adapter.js';
 import { createFindAccount } from '../accounts.js';
 
@@ -11,6 +11,24 @@ export function createProvider({ config, pool, clients, jwks }) {
     clients.filter((c) => c.always_include_groups).map((c) => c.client_id),
   );
   const day = 24 * 60 * 60;
+
+  // With an existing session, ask the user to confirm the account unless the client passed prompt=none.
+  const policy = interactionPolicy.base();
+  policy.get('login')?.checks.add(
+    new interactionPolicy.Check('continue_as', 'Confirm the signed-in account', (ctx) => {
+      const oidc = /** @type {any} */ (ctx.oidc);
+      if (!oidc.session?.accountId || oidc.result?.login)
+        return interactionPolicy.Check.NO_NEED_TO_PROMPT;
+      if (
+        String(oidc.params?.prompt ?? '')
+          .split(' ')
+          .includes('none')
+      )
+        return interactionPolicy.Check.NO_NEED_TO_PROMPT;
+      return interactionPolicy.Check.REQUEST_PROMPT;
+    }),
+    0,
+  );
 
   const provider = new Provider(config.issuer, {
     adapter: createAdapterClass(pool),
@@ -45,6 +63,7 @@ export function createProvider({ config, pool, clients, jwks }) {
     },
     rotateRefreshToken: true,
     interactions: {
+      policy,
       url: (_ctx, interaction) => `${config.basePath}/interaction/${interaction.uid}`,
     },
     features: { devInteractions: { enabled: false }, rpInitiatedLogout: { enabled: true } },
