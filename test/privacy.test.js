@@ -9,8 +9,9 @@ import { emailPage } from '../src/web/pages.js';
 const MINIMAL = {
   ISSUER: 'https://id.example.org',
   DATABASE_URL: 'postgres://localhost/tunnus',
-  KEY_ENCRYPTION_SECRET: 'secret',
-  COOKIE_SECRETS: 'cookie',
+  KEY_ENCRYPTION_SECRET: 'test-key-encryption-secret-0123456789',
+  COOKIE_SECRETS: 'cookie-secret-0123',
+  ALLOW_CONSOLE_MAIL: 'true',
   CONTROLLER_NAME: 'Example Organisation',
   CONTROLLER_CONTACT: 'privacy@example.org',
 };

@@ -88,6 +88,41 @@ export function parseProcessors(env, readFile) {
   });
 }
 
+/** The placeholder value used in .env.example. Never a real secret. */
+const PLACEHOLDER = 'change-me';
+
+/**
+ * TRUST_PROXY: 'true' and 'false' stay booleans, an all-digit value becomes a hop count
+ * (Express treats a numeric string as an address list, so '1' would trust nothing), and any
+ * other value is kept as an address list.
+ * @param {string} raw
+ * @returns {boolean | number | string}
+ */
+export function parseTrustProxy(raw) {
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  return raw;
+}
+
+/**
+ * Reject secrets that are too short or still the example placeholder.
+ * KEY_ENCRYPTION_SECRET must be 32+ characters; each COOKIE_SECRETS item 16+.
+ * @param {NodeJS.ProcessEnv} env
+ */
+function validateSecrets(env) {
+  const keySecret = /** @type {string} */ (env.KEY_ENCRYPTION_SECRET);
+  if (keySecret === PLACEHOLDER)
+    throw new Error('KEY_ENCRYPTION_SECRET must not be the example placeholder');
+  if (keySecret.length < 32)
+    throw new Error('KEY_ENCRYPTION_SECRET must be at least 32 characters');
+  for (const item of parseList(env.COOKIE_SECRETS)) {
+    if (item.startsWith(PLACEHOLDER))
+      throw new Error('COOKIE_SECRETS must not contain the example placeholder');
+    if (item.length < 16) throw new Error('COOKIE_SECRETS items must be at least 16 characters');
+  }
+}
+
 /**
  * Load and validate the whole configuration from the environment.
  * @param {NodeJS.ProcessEnv} [env]
@@ -109,6 +144,15 @@ export function loadConfig(env = process.env, io = {}) {
 
   if (!['console', 'smtp', 'brevo'].includes(env.MAIL_PROVIDER ?? 'console'))
     throw new Error('MAIL_PROVIDER must be console, smtp or brevo');
+  // The console provider writes sign-in codes to the log. Refuse it on a public (https) issuer
+  // unless the operator opts in, so a forgotten MAIL_PROVIDER is caught at start-up.
+  if ((env.MAIL_PROVIDER ?? 'console') === 'console' && url.protocol === 'https:') {
+    if (env.ALLOW_CONSOLE_MAIL !== 'true')
+      throw new Error(
+        'MAIL_PROVIDER must be smtp or brevo for an https ISSUER (console logs sign-in codes); ' +
+          'set ALLOW_CONSOLE_MAIL=true only for a non-production test instance',
+      );
+  }
   if (env.MAIL_PROVIDER === 'smtp' && !env.SMTP_URL)
     throw new Error('SMTP_URL is required for smtp');
   if (env.MAIL_PROVIDER === 'brevo' && !env.BREVO_API_KEY)
@@ -116,10 +160,12 @@ export function loadConfig(env = process.env, io = {}) {
   if (!['fi', 'sv', 'en'].includes(env.DEFAULT_LOCALE ?? 'en'))
     throw new Error('DEFAULT_LOCALE must be fi, sv or en');
 
+  validateSecrets(env);
+
   const intervalHours = int(env, 'CLEANUP_INTERVAL_HOURS', 24);
   if (intervalHours < 1) throw new Error('CLEANUP_INTERVAL_HOURS must be at least 1');
 
-  const trustProxy = env.TRUST_PROXY ?? 'false';
+  const trustProxy = parseTrustProxy(env.TRUST_PROXY ?? 'false');
   return {
     issuer,
     basePath,
@@ -127,7 +173,7 @@ export function loadConfig(env = process.env, io = {}) {
     port: int(env, 'PORT', 3000),
     keyEncryptionSecret: /** @type {string} */ (env.KEY_ENCRYPTION_SECRET),
     cookieSecrets: parseList(env.COOKIE_SECRETS),
-    trustProxy: trustProxy === 'true' ? true : trustProxy === 'false' ? false : trustProxy,
+    trustProxy,
     clientsFile: env.CLIENTS_FILE ?? '',
     signupAllow: env.SIGNUP_EMAIL_ALLOW ?? '',
     signupDeny: env.SIGNUP_EMAIL_DENY ?? '',

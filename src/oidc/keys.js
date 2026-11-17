@@ -2,6 +2,7 @@ import {
   createCipheriv,
   createDecipheriv,
   generateKeyPairSync,
+  hkdfSync,
   randomBytes,
   scryptSync,
   randomUUID,
@@ -43,31 +44,77 @@ export class KeyError extends Error {
   }
 }
 
-/** @param {string} secret */
+/**
+ * Derived keys per secret. scrypt is deliberately slow, so it runs once per secret, not per call.
+ * @type {Map<string, Buffer>}
+ */
+const derivedKeys = new Map();
+
+/**
+ * The AES key for signing_keys, derived with scrypt. The derivation is kept as it was so that
+ * existing rows stay decryptable.
+ * @param {string} secret
+ */
 function deriveKey(secret) {
-  return scryptSync(secret, 'tunnus-signing-keys', 32);
+  let key = derivedKeys.get(secret);
+  if (!key) {
+    key = scryptSync(secret, 'tunnus-signing-keys', 32);
+    derivedKeys.set(secret, key);
+  }
+  return key;
 }
 
 /**
- * @param {string} plaintext
+ * A 32-byte subkey for one purpose, derived from the secret with HKDF-SHA256. Used for the
+ * short-lived email codes, so a different purpose never shares a key with another.
  * @param {string} secret
+ * @param {string} purpose
+ * @returns {Buffer}
  */
-export function encrypt(plaintext, secret) {
+export function deriveSubkey(secret, purpose) {
+  return Buffer.from(hkdfSync('sha256', secret, 'tunnus-subkeys', `tunnus:${purpose}:v1`, 32));
+}
+
+/**
+ * AES-256-GCM encryption with a 32-byte key. Output is base64 of iv, tag and ciphertext.
+ * @param {string} plaintext
+ * @param {Buffer} key
+ */
+export function encryptWithKey(plaintext, key) {
   const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', deriveKey(secret), iv);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
   const data = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
   return Buffer.concat([iv, cipher.getAuthTag(), data]).toString('base64');
 }
 
 /**
+ * Inverse of encryptWithKey. Throws if the key is wrong or the data was altered.
+ * @param {string} encoded
+ * @param {Buffer} key
+ */
+export function decryptWithKey(encoded, key) {
+  const buf = Buffer.from(encoded, 'base64');
+  const decipher = createDecipheriv('aes-256-gcm', key, buf.subarray(0, 12));
+  decipher.setAuthTag(buf.subarray(12, 28));
+  return Buffer.concat([decipher.update(buf.subarray(28)), decipher.final()]).toString('utf8');
+}
+
+/**
+ * Encrypt a signing key (scrypt-derived key from the secret).
+ * @param {string} plaintext
+ * @param {string} secret
+ */
+export function encrypt(plaintext, secret) {
+  return encryptWithKey(plaintext, deriveKey(secret));
+}
+
+/**
+ * Decrypt a signing key (scrypt-derived key from the secret).
  * @param {string} encoded
  * @param {string} secret
  */
 export function decrypt(encoded, secret) {
-  const buf = Buffer.from(encoded, 'base64');
-  const decipher = createDecipheriv('aes-256-gcm', deriveKey(secret), buf.subarray(0, 12));
-  decipher.setAuthTag(buf.subarray(12, 28));
-  return Buffer.concat([decipher.update(buf.subarray(28)), decipher.final()]).toString('utf8');
+  return decryptWithKey(encoded, deriveKey(secret));
 }
 
 /**

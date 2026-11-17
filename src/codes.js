@@ -1,14 +1,23 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
-import { decrypt, encrypt } from './oidc/keys.js';
+import { decryptWithKey, deriveSubkey, encryptWithKey } from './oidc/keys.js';
 
 export const CODE_TTL_MS = 10 * 60 * 1000;
 export const MAX_ATTEMPTS = 5;
 
 /**
+ * Subkeys for email codes, one per purpose (HKDF from KEY_ENCRYPTION_SECRET). Codes are short
+ * lived, so they can be invalidated without a data migration.
+ * @param {string} secret
+ */
+const macKey = (secret) => deriveSubkey(secret, 'email-code-hmac');
+/** @param {string} secret */
+const encKey = (secret) => deriveSubkey(secret, 'email-code-encrypt');
+
+/**
  * @param {string} secret
  * @param {string} value
  */
-const mac = (secret, value) => createHmac('sha256', secret).update(value).digest('hex');
+const mac = (secret, value) => createHmac('sha256', macKey(secret)).update(value).digest('hex');
 
 /**
  * @param {string} a
@@ -52,7 +61,7 @@ export async function issueCode(pool, { secret, limits, email, uid, ip, purpose 
     [
       email,
       mac(secret, code),
-      encrypt(code, secret),
+      encryptWithKey(code, encKey(secret)),
       mac(secret, linkToken),
       purpose,
       uid,
@@ -112,7 +121,7 @@ export async function verifyLink(pool, secret, uid, token, { consume }) {
   if (consume)
     await pool.query('UPDATE email_codes SET verified_at = now() WHERE id = $1', [row.id]);
   else await pool.query('UPDATE email_codes SET attempts = attempts - 1 WHERE id = $1', [row.id]);
-  return { ok: true, email: row.email, code: decrypt(row.code_enc, secret) };
+  return { ok: true, email: row.email, code: decryptWithKey(row.code_enc, encKey(secret)) };
 }
 
 /**

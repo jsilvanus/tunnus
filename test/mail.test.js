@@ -11,8 +11,9 @@ import {
 const config = loadConfig({
   ISSUER: 'https://id.example.org',
   DATABASE_URL: 'postgres://x',
-  KEY_ENCRYPTION_SECRET: 's',
-  COOKIE_SECRETS: 'c',
+  KEY_ENCRYPTION_SECRET: 'test-key-encryption-secret-0123456789',
+  COOKIE_SECRETS: 'cookie-secret-0123',
+  ALLOW_CONSOLE_MAIL: 'true',
   CONTROLLER_NAME: 'Example Organisation',
   CONTROLLER_CONTACT: 'privacy@example.org',
 });
@@ -49,8 +50,9 @@ describe('mail', () => {
     const hosted = loadConfig({
       ISSUER: 'https://id.example.org',
       DATABASE_URL: 'postgres://x',
-      KEY_ENCRYPTION_SECRET: 's',
-      COOKIE_SECRETS: 'c',
+      KEY_ENCRYPTION_SECRET: 'test-key-encryption-secret-0123456789',
+      COOKIE_SECRETS: 'cookie-secret-0123',
+      ALLOW_CONSOLE_MAIL: 'true',
       PRIVACY_NOTICE_URL: 'https://notice.example.org/tunnus',
     });
     const mail = buildCodeMail(hosted, '123456', 'https://id.example.org/l', 'sv');
