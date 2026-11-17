@@ -7,6 +7,9 @@ import { createHealthRouter, PACKAGE_VERSION } from './health.js';
 import { createPrivacyRouter } from './web/privacy.js';
 import { createMetrics } from './metrics.js';
 import { setAuditMetrics } from './audit.js';
+import { logger } from './logger.js';
+import { requestLog } from './web/requestLog.js';
+import { errorHandler } from './web/errorHandler.js';
 
 /**
  * Build the Express app. Everything is mounted under the issuer's path so a
@@ -22,6 +25,7 @@ export async function createApp({ config, pool, clients, mailer }, options = {})
   const app = express();
   app.set('trust proxy', config.trustProxy);
   app.disable('x-powered-by');
+  app.use(requestLog(logger));
 
   const router = express.Router();
   router.use(securityHeaders(config));
@@ -45,6 +49,7 @@ export async function createApp({ config, pool, clients, mailer }, options = {})
     }
     callback(req, res, next);
   });
+  router.use(errorHandler({ config, logger }));
   app.use(config.basePath || '/', router);
   return { app, provider: holder.current, holder, metrics };
 }

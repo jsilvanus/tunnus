@@ -1,4 +1,3 @@
-import pino from 'pino';
 import { createApp } from './app.js';
 import { loadClients, loadConfig } from './config.js';
 import { createPool, migrate } from './db.js';
@@ -6,10 +5,10 @@ import { ensureDefaultGroups } from './accounts.js';
 import { ensureSigningKey } from './oidc/keys.js';
 import { createMailerFromConfig } from './mail.js';
 import { startCleanupScheduler } from './jobs/scheduler.js';
+import { errorFields, logger } from './logger.js';
 
 const SHUTDOWN_GRACE_MS = 10_000;
 
-const logger = pino();
 const config = loadConfig();
 const pool = createPool(config.databaseUrl);
 await migrate(pool);
@@ -28,6 +27,19 @@ const cleanup = startCleanupScheduler({ config, pool, mailer, logger, metrics })
 const server = app.listen(config.port, () =>
   logger.info({ issuer: config.issuer, port: config.port }, 'tunnus listening'),
 );
+
+/**
+ * A failure outside a request is logged, then the process exits non-zero: its state is unknown,
+ * and a supervisor restarts it.
+ * @param {string} event
+ * @param {unknown} err
+ */
+function fatal(event, err) {
+  logger.fatal({ event, err: errorFields(err) }, 'fatal error, exiting');
+  process.exit(1);
+}
+process.on('uncaughtException', (err) => fatal('uncaughtException', err));
+process.on('unhandledRejection', (reason) => fatal('unhandledRejection', reason));
 
 let shuttingDown = false;
 

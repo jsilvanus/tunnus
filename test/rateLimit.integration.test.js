@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { browser, startTunnus } from './helpers/harness.js';
 
 /** @type {Awaited<ReturnType<typeof startTunnus>>} */
@@ -22,7 +22,7 @@ describe('rate limits', () => {
     for (let i = 0; i < 3; i++) {
       responses.push(await b.post(`${t.origin}${path}/email`, { email: 'limited@example.org' }));
     }
-    expect(t.mails.length).toBe(2);
+    await vi.waitFor(() => expect(t.mails.length).toBe(2));
     expect(new Set(responses.map((r) => r.body)).size).toBe(1);
     const { rows } = await t.pool.query(
       "SELECT details FROM audit_events WHERE action = 'rate_limited'",
@@ -41,6 +41,8 @@ describe('rate limits', () => {
       await b.post(`${t.origin}${path}/email`, { email: `${who}@example.org` });
     }
     // 2 codes were already issued to this IP above; limit is 3 per hour.
+    await vi.waitFor(() => expect(t.mails.length - before).toBe(1));
+    await new Promise((r) => setTimeout(r, 50));
     expect(t.mails.length - before).toBe(1);
   });
 });
@@ -58,7 +60,7 @@ describe('daily mail cap', () => {
       for (const who of ['c1', 'c2', 'c3']) {
         await b.post(`${capped.origin}${path}/email`, { email: `${who}@example.org` });
       }
-      expect(capped.mails.length).toBe(2);
+      await vi.waitFor(() => expect(capped.mails.length).toBe(2));
       const { rows } = await capped.pool.query(
         "SELECT details FROM audit_events WHERE action = 'rate_limited'",
       );

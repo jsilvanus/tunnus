@@ -1,5 +1,6 @@
 import { createProvider } from './provider.js';
 import { loadJwks, publishedKids } from './keys.js';
+import { logger as defaultLogger } from '../logger.js';
 
 /**
  * Holds the current oidc-provider instance. oidc-provider reads its keystore once, at
@@ -11,7 +12,7 @@ import { loadJwks, publishedKids } from './keys.js';
  *   logger?: { error: (obj: unknown, msg?: string) => void },
  * }} deps
  */
-export async function createProviderHolder({ config, pool, clients, logger = console }) {
+export async function createProviderHolder({ config, pool, clients, logger = defaultLogger }) {
   /** @type {import('oidc-provider').Provider | undefined} */
   let provider;
   /** @type {string[]} */

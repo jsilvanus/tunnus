@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { browser, startTunnus } from './helpers/harness.js';
 
 const TOKEN = 'scrape-secret-for-tests';
@@ -21,8 +21,10 @@ async function requestCode(email) {
   const b = browser();
   const { page } = await t.startAuth(b);
   const path = /** @type {string} */ (t.interactionPath(page.body));
+  const before = t.mails.length;
   const sent = await b.post(`${t.origin}${path}/email`, { email });
   expect(sent.res.status).toBe(200);
+  await vi.waitFor(() => expect(t.mails.length).toBe(before + 1));
   return { b, path, mail: /** @type {any} */ (t.mails.at(-1)) };
 }
 

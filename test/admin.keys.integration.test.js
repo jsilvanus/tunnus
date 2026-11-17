@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import pg from 'pg';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createPool, migrate } from '../src/db.js';
 import { ensureSigningKey } from '../src/oidc/keys.js';
 import { startAdmin } from './helpers/admin.js';
@@ -66,7 +66,9 @@ async function signIn(email) {
   const b = browser();
   const { page, verifier, state } = await t.startAuth(b);
   const path = /** @type {string} */ (t.interactionPath(page.body));
+  const before = t.mails.length;
   await b.post(`${t.origin}${path}/email`, { email });
+  await vi.waitFor(() => expect(t.mails.length).toBe(before + 1));
   const mail = /** @type {any} */ (t.mails.at(-1));
   const done = await b.post(`${t.origin}${path}/code`, { code: mail.code });
   let url = done.finalUrl;

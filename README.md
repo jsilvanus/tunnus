@@ -23,6 +23,13 @@ Every setting is an environment variable; see [`.env.example`](.env.example).
 Nothing deployment-specific (domains, groups, clients, branding, controller
 details) is built into the code.
 
+Clients are described in a JSON file (`CLIENTS_FILE`). A client that wants refresh
+tokens needs `"grant_types": ["authorization_code", "refresh_token"]`; its requests
+need `offline_access` and `prompt=consent`. See the clients section of
+[`docs/deployment.md`](docs/deployment.md).
+
+Security notes and the threat model are in [`docs/security.md`](docs/security.md).
+
 Running Tunnus in production (image, database, reverse proxy, keys, cleanup,
 backups) is described in [`docs/deployment.md`](docs/deployment.md).
 

@@ -1,4 +1,6 @@
 import { AdminError } from '../errors.js';
+import { errorFields, logger } from '../../logger.js';
+
 import {
   KeyError,
   listKeys as listSigningKeys,
@@ -44,7 +46,7 @@ async function reloadAfterChange(ctx) {
   try {
     await ctx.reloadKeys();
   } catch (err) {
-    console.error('signing key reload after change failed', { err });
+    logger.error({ err: errorFields(err) }, 'signing key reload after change failed');
   }
 }
 

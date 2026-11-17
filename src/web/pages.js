@@ -159,3 +159,44 @@ export function consentPage(ctx, action, clientName, scopes) {
 <form method="post" action="${esc(action)}/abort"><button class="secondary">${esc(t(locale, 'deny'))}</button></form>`,
   );
 }
+
+/**
+ * The branded page for an unexpected error. It names no cause; the request id is in the response
+ * header and the log.
+ * @param {Ctx} ctx
+ */
+export function errorPage(ctx) {
+  const title = t(ctx.locale, 'error_title');
+  return layout(ctx, title, `<h2>${esc(title)}</h2><p>${esc(t(ctx.locale, 'error_body'))}</p>`);
+}
+
+/**
+ * Logout confirmation. `form` is the form oidc-provider builds (it carries the xsrf field and the
+ * action); the buttons submit it by id. No script: the page works under the CSP.
+ * @param {Ctx} ctx
+ * @param {string} form
+ */
+export function logoutPage(ctx, form) {
+  const title = t(ctx.locale, 'logout_title');
+  return layout(
+    ctx,
+    title,
+    `<h2>${esc(t(ctx.locale, 'logout_question'))}</h2>
+${form}
+<p><button type="submit" form="op.logoutForm" name="logout" value="yes">${esc(t(ctx.locale, 'logout_yes'))}</button></p>
+<p><button type="submit" form="op.logoutForm" class="secondary">${esc(t(ctx.locale, 'logout_no'))}</button></p>`,
+  );
+}
+
+/**
+ * Shown after sign-out when the client gave no post-logout redirect.
+ * @param {Ctx} ctx
+ */
+export function logoutDonePage(ctx) {
+  const title = t(ctx.locale, 'logout_done_title');
+  return layout(
+    ctx,
+    title,
+    `<h2>${esc(title)}</h2><p>${esc(t(ctx.locale, 'logout_done_body'))}</p>`,
+  );
+}

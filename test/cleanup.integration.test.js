@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CLEANUP_LOCK_KEY, BATCH_SIZE, runCleanup } from '../src/jobs/cleanup.js';
 import { REDIRECT, browser, startTunnus } from './helpers/harness.js';
 
@@ -224,7 +224,9 @@ describe('inactive users', () => {
     const b = browser();
     const { page } = await t.startAuth(b);
     const path = /** @type {string} */ (t.interactionPath(page.body));
+    const before = t.mails.length;
     await b.post(`${t.origin}${path}/email`, { email });
+    await vi.waitFor(() => expect(t.mails.length).toBe(before + 1));
     const mail = /** @type {any} */ (t.mails.at(-1));
     const done = await b.post(`${t.origin}${path}/code`, { code: mail.code });
     expect(done.finalUrl.startsWith(REDIRECT)).toBe(true);

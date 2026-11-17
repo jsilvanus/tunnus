@@ -3,6 +3,7 @@ import { audit } from '../audit.js';
 import { createUser, findUserByEmail, loadUser } from '../accounts.js';
 import { consume, getVerified, issueCode, verifyCode, verifyLink } from '../codes.js';
 import { displayNameFromEmail } from '../displayName.js';
+import { isValidEmail } from '../emailAddress.js';
 import { createSignupRule } from '../emailRules.js';
 import { pickLocale } from '../i18n.js';
 import {
@@ -15,6 +16,24 @@ import {
   linkInvalidPage,
   namePage,
 } from './pages.js';
+
+/**
+ * Send a mail without waiting for it. A failure is audited with the error name only: provider
+ * error text can contain the recipient address, and audit details must not hold one.
+ * @param {import('pg').Pool} pool
+ * @param {{ ip: string | null, kind: string, send: () => Promise<void> }} p
+ */
+export function sendInBackground(pool, { ip, kind, send }) {
+  void (async () => {
+    try {
+      await send();
+    } catch (err) {
+      const name = /** @type {any} */ (err)?.name;
+      const error = typeof name === 'string' ? name : 'Error';
+      await audit(pool, { action: 'mail_error', ip, details: { kind, error } }).catch(() => {});
+    }
+  })();
+}
 
 /**
  * End-user interaction pages: email, code, link, name, account choice and consent.
@@ -129,7 +148,10 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
   router.post('/interaction/:uid/continue', form, async (req, res) => {
     const d = await details(req, res);
     if (!d?.session?.accountId) return expired(req, res);
-    await finishLogin(req, res, d.session.accountId, 'signin_continue');
+    // Disabling a user ends its sessions, but a session that outlived the change must not sign in.
+    const user = await loadUser(pool, d.session.accountId);
+    if (!user || user.status !== 'active') return expired(req, res);
+    await finishLogin(req, res, user.id, 'signin_continue');
   });
 
   router.post('/interaction/:uid/other', form, async (req, res) => {
@@ -145,7 +167,7 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
     const email = String(req.body.email ?? '')
       .trim()
       .toLowerCase();
-    if (!/^[^@\s]+@[^@\s]+$/.test(email))
+    if (!isValidEmail(email))
       return void res.send(emailPage(ctx, `${base(d.uid)}/email`, 'invalid_email'));
 
     const user = await findUserByEmail(pool, email);
@@ -162,15 +184,12 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
       });
       if (issued.ok) {
         const link = `${config.issuer}/interaction/${d.uid}/link/${issued.linkToken}`;
-        try {
-          await mailer.sendCode(email, issued.code, link, ctx.locale);
-        } catch (err) {
-          await audit(pool, {
-            action: 'mail_error',
-            ip: req.ip,
-            details: { message: String(err) },
-          });
-        }
+        // Not awaited: the response must not reveal whether a mail was sent.
+        sendInBackground(pool, {
+          ip: req.ip ?? null,
+          kind: 'sign_in_code',
+          send: () => mailer.sendCode(email, issued.code, link, ctx.locale),
+        });
       } else {
         await audit(pool, {
           action: 'rate_limited',
@@ -244,7 +263,14 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
       String(req.body.name ?? '')
         .trim()
         .slice(0, 100) || displayNameFromEmail(verified.email);
-    const id = await createUser(pool, verified.email, config.defaultGroups, name);
+    let id;
+    try {
+      id = await createUser(pool, verified.email, config.defaultGroups, name);
+    } catch (err) {
+      // Two requests for one address both passed the check above; the unique constraint decides.
+      if (/** @type {any} */ (err)?.code === '23505') return expired(req, res);
+      throw err;
+    }
     await consume(pool, verified.id);
     await finishLogin(req, res, id, 'signup');
   });

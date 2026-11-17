@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import pg from 'pg';
+import { errorFields, logger } from './logger.js';
 
 /** Session-level advisory lock for migrations. A constant key, distinct from the key and cleanup locks. */
 export const MIGRATION_LOCK_KEY = 7300201;
@@ -34,7 +35,7 @@ export function createPool(connectionString, schema, env = process.env) {
     ...(schema ? { options: `-c search_path=${schema}` } : {}),
   });
   pool.on('error', (err) => {
-    console.error('database pool error on an idle client', err.message);
+    logger.error({ err: errorFields(err) }, 'database pool error on an idle client');
   });
   return pool;
 }
