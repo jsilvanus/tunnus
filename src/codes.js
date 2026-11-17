@@ -29,47 +29,93 @@ const same = (a, b) => a.length === b.length && timingSafeEqual(Buffer.from(a), 
  * @typedef {{ perEmailPerHour: number, perIpPerHour: number, mailPerDay: number }} Limits
  */
 
+/** Failed attempts (summed over an address's codes) that lock the address for an hour. */
+export const FAILED_ATTEMPTS_PER_HOUR = 10;
+/** Sign-in (login) codes may go on until this multiple of MAIL_DAILY_CAP, so sign-ups alone cannot exhaust them. */
+export const LOGIN_CAP_FACTOR = 1.5;
+/** Advisory lock key for the global daily count. Taken after the per-email lock, always in that order. */
+export const CODE_DAILY_LOCK_KEY = 7300301;
+
 /**
  * Create a code and link token for an interaction, unless a rate limit applies.
+ *
+ * The check and the insert run in one transaction. A transaction-scoped advisory lock per
+ * address serialises concurrent requests for one address, and a second lock serialises the
+ * daily count, so concurrent requests cannot go past a limit.
+ *
+ * Limits: per address per hour (`email`), failed attempts per address in the last hour
+ * (`email`, the lockout), per IP per hour (`ip`), and the daily cap (`daily`). Sign-up codes
+ * stop at MAIL_DAILY_CAP; login codes stop at LOGIN_CAP_FACTOR times that.
  * @param {import('pg').Pool} pool
  * @param {{ secret: string, limits: Limits, email: string, uid: string, ip: string | null, purpose: 'signup' | 'login' }} p
  * @returns {Promise<{ ok: true, code: string, linkToken: string } | { ok: false, reason: 'email' | 'ip' | 'daily' }>}
  */
 export async function issueCode(pool, { secret, limits, email, uid, ip, purpose }) {
-  const { rows } = await pool.query(
-    `SELECT count(*) FILTER (WHERE email = $1 AND created_at > now() - interval '1 hour')::int AS by_email,
-            count(*) FILTER (WHERE ip = $2 AND created_at > now() - interval '1 hour')::int AS by_ip,
-            count(*) FILTER (WHERE created_at > now() - interval '1 day')::int AS by_day
-       FROM email_codes WHERE created_at > now() - interval '1 day'`,
-    [email, ip],
-  );
-  const r = rows[0];
-  if (r.by_email >= limits.perEmailPerHour) return { ok: false, reason: 'email' };
-  if (ip && r.by_ip >= limits.perIpPerHour) return { ok: false, reason: 'ip' };
-  if (r.by_day >= limits.mailPerDay) return { ok: false, reason: 'daily' };
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [email]);
+    await client.query('SELECT pg_advisory_xact_lock($1)', [CODE_DAILY_LOCK_KEY]);
+    const { rows } = await client.query(
+      `SELECT count(*) FILTER (WHERE email = $1 AND created_at > now() - interval '1 hour')::int AS by_email,
+              coalesce(sum(attempts) FILTER (WHERE email = $1 AND created_at > now() - interval '1 hour'), 0)::int AS failed_by_email,
+              count(*) FILTER (WHERE ip = $2 AND created_at > now() - interval '1 hour')::int AS by_ip,
+              count(*)::int AS by_day
+         FROM email_codes WHERE created_at > now() - interval '1 day'`,
+      [email, ip],
+    );
+    const r = rows[0];
+    const refused = refusal(r, { limits, ip, purpose });
+    if (refused) {
+      await client.query('ROLLBACK');
+      return { ok: false, reason: refused };
+    }
 
-  const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
-  const linkToken = randomBytes(32).toString('base64url');
-  // A new code replaces any earlier one for the same interaction.
-  await pool.query(
-    'UPDATE email_codes SET consumed_at = now() WHERE interaction_uid = $1 AND consumed_at IS NULL',
-    [uid],
-  );
-  await pool.query(
-    `INSERT INTO email_codes (email, code_hash, code_enc, link_token_hash, purpose, interaction_uid, ip, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, now() + $8 * interval '1 millisecond')`,
-    [
-      email,
-      mac(secret, code),
-      encryptWithKey(code, encKey(secret)),
-      mac(secret, linkToken),
-      purpose,
-      uid,
-      ip,
-      CODE_TTL_MS,
-    ],
-  );
-  return { ok: true, code, linkToken };
+    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const linkToken = randomBytes(32).toString('base64url');
+    // A new code replaces any earlier one for the same interaction.
+    await client.query(
+      'UPDATE email_codes SET consumed_at = now() WHERE interaction_uid = $1 AND consumed_at IS NULL',
+      [uid],
+    );
+    await client.query(
+      `INSERT INTO email_codes (email, code_hash, code_enc, link_token_hash, purpose, interaction_uid, ip, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, now() + $8 * interval '1 millisecond')`,
+      [
+        email,
+        mac(secret, code),
+        encryptWithKey(code, encKey(secret)),
+        mac(secret, linkToken),
+        purpose,
+        uid,
+        ip,
+        CODE_TTL_MS,
+      ],
+    );
+    await client.query('COMMIT');
+    return { ok: true, code, linkToken };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Which limit, if any, refuses a new code. Pure: the counts come from issueCode's query.
+ * @param {{ by_email: number, failed_by_email: number, by_ip: number, by_day: number }} r
+ * @param {{ limits: Limits, ip: string | null, purpose: 'signup' | 'login' }} p
+ * @returns {'email' | 'ip' | 'daily' | null}
+ */
+export function refusal(r, { limits, ip, purpose }) {
+  if (r.failed_by_email >= FAILED_ATTEMPTS_PER_HOUR) return 'email';
+  if (r.by_email >= limits.perEmailPerHour) return 'email';
+  if (ip && r.by_ip >= limits.perIpPerHour) return 'ip';
+  const dailyMax =
+    purpose === 'login' ? Math.floor(limits.mailPerDay * LOGIN_CAP_FACTOR) : limits.mailPerDay;
+  if (r.by_day >= dailyMax) return 'daily';
+  return null;
 }
 
 /**

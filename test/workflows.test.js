@@ -3,10 +3,11 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 
-const read = (rel) => readFileSync(fileURLToPath(new URL(`../${rel}`, import.meta.url)), 'utf8');
-const image = parse(read('.github/workflows/publish-image.yml'));
-const ci = parse(read('.github/workflows/ci.yml'));
-const dependabot = parse(read('.github/dependabot.yml'));
+const read = (/** @type {string} */ rel) =>
+  readFileSync(fileURLToPath(new URL(`../${rel}`, import.meta.url)), 'utf8');
+const image = /** @type {any} */ (parse(read('.github/workflows/publish-image.yml')));
+const ci = /** @type {any} */ (parse(read('.github/workflows/ci.yml')));
+const dependabot = /** @type {any} */ (parse(read('.github/dependabot.yml')));
 
 describe('publish-image workflow', () => {
   it('runs on main pushes, version tags and manual dispatch', () => {
@@ -16,7 +17,7 @@ describe('publish-image workflow', () => {
   });
 
   it('builds with provenance, SBOM and the GitHub Actions cache', () => {
-    const build = image.jobs.publish.steps.find((s) =>
+    const build = image.jobs.publish.steps.find((/** @type {any} */ s) =>
       s.uses?.startsWith('docker/build-push-action'),
     );
     expect(build.with.provenance).toBe(true);
@@ -30,10 +31,10 @@ describe('publish-image workflow', () => {
   });
 
   it('tags main pushes as main and never as latest', () => {
-    const meta = image.jobs.publish.steps.find((s) => s.id === 'meta');
+    const meta = image.jobs.publish.steps.find((/** @type {any} */ s) => s.id === 'meta');
     const tags = meta.with.tags;
     expect(tags).toContain("type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}");
-    const latestLine = tags.split('\n').find((l) => l.includes('value=latest'));
+    const latestLine = tags.split('\n').find((/** @type {any} */ l) => l.includes('value=latest'));
     expect(latestLine).not.toContain('refs/heads/main');
     expect(latestLine).toContain("github.ref_type == 'tag'");
   });
@@ -44,12 +45,14 @@ describe('publish-image workflow', () => {
     expect(deploy.if).toContain("github.event_name == 'push'");
     expect(deploy.if).toContain('refs/heads/main');
     expect(deploy.if).toContain("startsWith(github.ref, 'refs/tags/v')");
-    const check = deploy.steps.find((s) => s.id === 'configured');
+    const check = deploy.steps.find((/** @type {any} */ s) => s.id === 'configured');
     expect(check.env.DEPLOY_WEBHOOK_URL).toBe('${{ secrets.DEPLOY_WEBHOOK_URL }}');
   });
 
   it('sends the token only as a bearer header and never echoes it', () => {
-    const post = image.jobs.deploy.steps.find((s) => s.name === 'POST the deploy webhook');
+    const post = image.jobs.deploy.steps.find(
+      (/** @type {any} */ s) => s.name === 'POST the deploy webhook',
+    );
     expect(post.run).toContain('--fail');
     expect(post.run).toContain('--max-time 30');
     expect(post.run).not.toMatch(/echo[^\n]*DEPLOY_WEBHOOK/);
@@ -68,14 +71,16 @@ describe('ci workflow', () => {
   });
 
   it('runs the production audit', () => {
-    const runs = ci.jobs.check.steps.map((s) => s.run);
+    const runs = ci.jobs.check.steps.map((/** @type {any} */ s) => s.run);
     expect(runs).toContain('npm audit --omit=dev --audit-level=high');
   });
 });
 
 describe('dependabot', () => {
   it('updates npm, github-actions and docker weekly', () => {
-    const ecosystems = dependabot.updates.map((u) => u['package-ecosystem']).sort();
+    const ecosystems = dependabot.updates
+      .map((/** @type {any} */ u) => u['package-ecosystem'])
+      .sort();
     expect(ecosystems).toEqual(['docker', 'github-actions', 'npm']);
     for (const u of dependabot.updates) expect(u.schedule.interval).toBe('weekly');
   });

@@ -60,6 +60,17 @@ fails the run:
 For a version tag, `tag` is the tag name (`v1.2.3`) and `ref` is `refs/tags/v1.2.3`.
 The receiver decides what to deploy; nothing in this repository names a target.
 
+## Sign-in limits
+
+Code issuance is limited per address per hour (`RATE_LIMIT_EMAIL_PER_HOUR`), per
+IP per hour (`RATE_LIMIT_IP_PER_HOUR`) and per day (`MAIL_DAILY_CAP`). Sign-up
+codes stop at the daily cap; login codes for existing users continue to 1.5 times
+the cap, so a flood of sign-up requests cannot stop existing users from signing
+in. An address is also locked for an hour after 10 failed code attempts in the
+last hour, across all its sign-in pages. The checks and inserts run under
+advisory locks, so concurrent requests cannot exceed a limit. See
+[`security.md`](security.md) for the threat model.
+
 ## Required settings and secrets
 
 | Setting                                                                    | Notes                                                                                                                                                                                      |

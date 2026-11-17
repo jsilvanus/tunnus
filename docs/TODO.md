@@ -143,7 +143,7 @@ From [`reviews/2026-11-17-code-review.md`](reviews/2026-11-17-code-review.md). I
 - [x] M3 Cache the derived key; no `scryptSync` per encrypt/decrypt
 - [x] M4 `pool.on('error')`, pool and statement timeouts
 - [x] M5 Advisory lock around migrations
-- [ ] M6 Sign-in limits: per-IP interaction limit, reserve for existing users, atomic count
+- [x] M6 Sign-in limits: reserve for existing users, atomic count, lockout (per-IP interaction limit skipped: not required, the per-IP code limit already applies)
 - [ ] M7 Do not await mail send in `/email` (timing oracle)
 - [ ] M8 Timeouts for Brevo and SMTP sends
 - [ ] M9 Audit `err.name`, not `String(err)`, for mail errors
@@ -160,6 +160,6 @@ From [`reviews/2026-11-17-code-review.md`](reviews/2026-11-17-code-review.md). I
 - [x] L10 Supply chain: `permissions`, concurrency, `npm audit`, Dependabot, deploy workflow . Skipped: pinning actions by commit SHA and the base image by digest. Dependabot now proposes updates for both, and the pins are a separate change that needs a decision on who reviews them.
 - [ ] L11 Branded logout pages, `features.revocation` enabled
 - [ ] L12 `grant_types` documented in `clients.example.json` and `docs/deployment.md`
-- [ ] L13 Failed-verification lockout across interactions (10 per email per hour)
+- [x] L13 Failed-verification lockout across interactions (10 per email per hour)
 - [ ] L14 Code storage and threat model in `docs/security.md`
 - [ ] Run the OpenID conformance suite after H1 to M10 are fixed
