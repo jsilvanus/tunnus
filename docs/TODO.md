@@ -87,14 +87,20 @@ Goal: a real relying party signs in through Tunnus and receives `groups`.
 
 ## Phase 4: CLI and MCP server
 
-- [ ] CLI that reads `openapi.yaml` and maps each `operationId` to a
+- [x] CLI that reads `openapi.yaml` and maps each `operationId` to a
       command, with `--json` output and table output by default
-- [ ] CLI config: issuer URL and admin token from env or a config file
-- [ ] MCP server (stdio and Streamable HTTP) exposing the same operations
+      (command names from `x-tunnus-cli`; the `operationId` also works)
+- [x] CLI config: issuer URL and admin token from env or a config file
+      (token file via `--token-file`; the token is never a flag value)
+- [x] MCP server (stdio and Streamable HTTP) exposing the same operations
       as tools, with read-only and destructive annotations
-- [ ] Destructive operations excluded from MCP (delete user, revoke all
-      sessions, rotate or retire keys)
-- [ ] Tests: CLI command generation, MCP tool list and one call each
+- [x] Destructive operations excluded from MCP (delete user, revoke all
+      sessions, rotate or retire keys). Note: delete group is destructive
+      too and is excluded; admin token create and revoke are excluded
+      as `x-tunnus-mcp: false` (token values stay out of AI contexts)
+- [x] Tests: CLI command generation, MCP tool list and one call each
+      (in-memory and over HTTP). Note: stdio and the `--http` listener were
+      checked by hand against a running Tunnus, not in the automated tests
 
 ## Phase 5: Production readiness
 

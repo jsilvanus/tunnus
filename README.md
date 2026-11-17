@@ -41,6 +41,56 @@ Every call needs an admin token:
 curl -H "Authorization: Bearer tun_..." https://id.example.org/admin/api/v1/me
 ```
 
+### The `tunnus` command
+
+`tunnus` is a command-line client for the admin API. It reads the contract at
+run time, so every operation in `openapi.yaml` is a command (`tunnus --help`
+lists them; `tunnus users create --help` shows the flags). The URL and token
+come from `TUNNUS_URL` and `TUNNUS_ADMIN_TOKEN`, from `--url` and
+`--token-file`, or from a config file, `~/.config/tunnus/config.json`
+(or `$XDG_CONFIG_HOME/tunnus/config.json`, or the file named by `--config` or
+`TUNNUS_CONFIG`):
+
+```json
+{ "url": "https://id.example.org", "token": "tun_..." }
+```
+
+Keep that file readable only by you (`chmod 600`); `tunnus` warns when it is not.
+
+```bash
+tunnus whoami
+tunnus users list --q ada --json
+tunnus users create --email ada@example.org --display-name "Ada"
+tunnus groups grant 3 6f1b1d0e-3c1e-4c7a-9a52-2f0f5a3c9b11
+tunnus users delete 6f1b1d0e-3c1e-4c7a-9a52-2f0f5a3c9b11 --yes
+```
+
+Lists print a table by default and `--json` prints the response. `--all`
+follows the pages. Destructive commands ask you to type `yes`; without a
+terminal they need `--yes`.
+
+### The `tunnus-mcp` server
+
+`tunnus-mcp` exposes the same operations as tools for AI agents. Over stdio
+(the default) it uses the token from the same configuration as `tunnus`:
+
+```bash
+tunnus-mcp
+```
+
+With `--http` it serves Streamable HTTP at `POST /mcp` on `MCP_HOST`
+(default `127.0.0.1`) and `MCP_PORT` (default `8090`). It stores no token:
+every request carries its own `Authorization: Bearer tun_...`, which goes
+straight to the admin API. Put it behind TLS if it is reachable from elsewhere.
+
+```bash
+tunnus-mcp --http
+```
+
+Destructive operations (deleting users and groups, ending sessions, rotating
+and retiring keys) and admin token management are only available from the
+`tunnus` CLI, so they never reach an AI client.
+
 ## Licence
 
 [EUPL-1.2](LICENSE).

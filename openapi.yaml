@@ -14,8 +14,13 @@ info:
     `operationId`, validates requests (and, in tests, responses) against it,
     and the CLI and MCP server are generated from it.
 
-    `x-tunnus-destructive: true` marks operations that the MCP server leaves
-    out; they stay CLI-only.
+    Extensions on operations:
+    - `x-tunnus-cli` is the CLI command (`tunnus users list`).
+    - `x-tunnus-destructive: true` marks operations that cannot be undone.
+      The MCP server leaves them out and the CLI asks for confirmation.
+    - `x-tunnus-mcp: false` leaves an operation out of the MCP server for
+      another reason (admin token values must not pass through an AI
+      client's context).
   license:
     name: EUPL-1.2
 servers:
@@ -39,6 +44,7 @@ paths:
   /me:
     get:
       operationId: getMe
+      x-tunnus-cli: whoami
       tags: [me]
       summary: The admin user and token making this call
       responses:
@@ -52,6 +58,7 @@ paths:
   /admin-tokens:
     get:
       operationId: listAdminTokens
+      x-tunnus-cli: tokens list
       tags: [admin-tokens]
       summary: List admin tokens
       description: Lists active tokens (not revoked, not expired) unless `include_inactive` is true. Token values are never returned.
@@ -78,6 +85,8 @@ paths:
         default: { $ref: '#/components/responses/Error' }
     post:
       operationId: createAdminToken
+      x-tunnus-cli: tokens create
+      x-tunnus-mcp: false
       tags: [admin-tokens]
       summary: Create an admin token
       description: The token value is in the response only once. Without `user_id` the token is for the caller; `user_id` must name an active admin user.
@@ -99,6 +108,8 @@ paths:
       - { $ref: '#/components/parameters/TokenId' }
     delete:
       operationId: revokeAdminToken
+      x-tunnus-cli: tokens revoke
+      x-tunnus-mcp: false
       tags: [admin-tokens]
       summary: Revoke an admin token
       description: Idempotent; revoking an already revoked token returns 204.
@@ -109,6 +120,7 @@ paths:
   /users:
     get:
       operationId: listUsers
+      x-tunnus-cli: users list
       tags: [users]
       summary: List users, ordered by email
       parameters:
@@ -148,6 +160,7 @@ paths:
         default: { $ref: '#/components/responses/Error' }
     post:
       operationId: createUser
+      x-tunnus-cli: users create
       tags: [users]
       summary: Create a user
       description: Any email address is allowed (sign-up rules do not apply). The user joins the default groups.
@@ -169,6 +182,7 @@ paths:
       - { $ref: '#/components/parameters/UserId' }
     get:
       operationId: getUser
+      x-tunnus-cli: users get
       tags: [users]
       summary: Get a user
       responses:
@@ -180,6 +194,7 @@ paths:
         default: { $ref: '#/components/responses/Error' }
     patch:
       operationId: updateUser
+      x-tunnus-cli: users update
       tags: [users]
       summary: Update email, display name, status or admin flag
       description: |
@@ -201,6 +216,7 @@ paths:
         default: { $ref: '#/components/responses/Error' }
     delete:
       operationId: deleteUser
+      x-tunnus-cli: users delete
       tags: [users]
       summary: Delete a user
       description: Ends sessions, revokes tokens and removes the user row and memberships. Audit rows keep only the user id. Deleting the last active admin fails with `409 last_admin`.
@@ -214,6 +230,7 @@ paths:
       - { $ref: '#/components/parameters/UserId' }
     post:
       operationId: revokeUserSessions
+      x-tunnus-cli: users revoke-sessions
       tags: [users]
       summary: End all sessions and revoke all grants and tokens of a user
       description: The user can sign in again. Admin tokens are not affected.
@@ -231,6 +248,7 @@ paths:
       - { $ref: '#/components/parameters/UserId' }
     get:
       operationId: listUserGroups
+      x-tunnus-cli: users groups
       tags: [memberships]
       summary: List a user's group memberships, ordered by group name
       responses:
@@ -251,6 +269,7 @@ paths:
   /groups:
     get:
       operationId: listGroups
+      x-tunnus-cli: groups list
       tags: [groups]
       summary: List groups, ordered by name
       parameters:
@@ -277,6 +296,7 @@ paths:
         default: { $ref: '#/components/responses/Error' }
     post:
       operationId: createGroup
+      x-tunnus-cli: groups create
       tags: [groups]
       summary: Create a group
       requestBody:
@@ -297,6 +317,7 @@ paths:
       - { $ref: '#/components/parameters/GroupId' }
     get:
       operationId: getGroup
+      x-tunnus-cli: groups get
       tags: [groups]
       summary: Get a group
       responses:
@@ -308,6 +329,7 @@ paths:
         default: { $ref: '#/components/responses/Error' }
     patch:
       operationId: updateGroup
+      x-tunnus-cli: groups update
       tags: [groups]
       summary: Rename a group or change its description
       description: Default groups cannot be renamed (`409 default_group`); their description can change.
@@ -325,6 +347,7 @@ paths:
         default: { $ref: '#/components/responses/Error' }
     delete:
       operationId: deleteGroup
+      x-tunnus-cli: groups delete
       tags: [groups]
       summary: Delete a group and its memberships
       description: Default groups cannot be deleted (`409 default_group`).
@@ -338,6 +361,7 @@ paths:
       - { $ref: '#/components/parameters/GroupId' }
     get:
       operationId: listGroupMembers
+      x-tunnus-cli: groups members
       tags: [memberships]
       summary: List a group's members, ordered by email
       parameters:
@@ -365,6 +389,7 @@ paths:
       - { $ref: '#/components/parameters/UserId' }
     put:
       operationId: grantMembership
+      x-tunnus-cli: groups grant
       tags: [memberships]
       summary: Add a user to a group
       description: Idempotent. Returns 201 when the membership was created, 200 when it already existed (unchanged). The new `groups` claim applies at the user's next token refresh or sign-in.
@@ -382,6 +407,7 @@ paths:
         default: { $ref: '#/components/responses/Error' }
     delete:
       operationId: revokeMembership
+      x-tunnus-cli: groups revoke
       tags: [memberships]
       summary: Remove a user from a group
       description: Returns 404 `not_found` when the user is not a member.
@@ -392,6 +418,7 @@ paths:
   /keys:
     get:
       operationId: listKeys
+      x-tunnus-cli: keys list
       tags: [keys]
       summary: List signing keys, newest first
       parameters:
@@ -417,6 +444,7 @@ paths:
   /keys/rotate:
     post:
       operationId: rotateKeys
+      x-tunnus-cli: keys rotate
       tags: [keys]
       summary: Rotate signing keys
       description: |
@@ -442,6 +470,7 @@ paths:
         schema: { type: string, minLength: 1, maxLength: 100 }
     post:
       operationId: retireKey
+      x-tunnus-cli: keys retire
       tags: [keys]
       summary: Retire a key and remove it from JWKS now
       description: |
@@ -460,6 +489,7 @@ paths:
   /audit-events:
     get:
       operationId: listAuditEvents
+      x-tunnus-cli: audit list
       tags: [audit]
       summary: List audit events, newest first
       parameters:
@@ -505,6 +535,7 @@ paths:
   /clients:
     get:
       operationId: listClients
+      x-tunnus-cli: clients list
       tags: [clients]
       summary: List configured clients (read-only, from CLIENTS_FILE)
       description: Client secrets are never returned.
