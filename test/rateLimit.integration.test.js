@@ -44,3 +44,27 @@ describe('rate limits', () => {
     expect(t.mails.length - before).toBe(1);
   });
 });
+
+describe('daily mail cap', () => {
+  it('stops all sending once the daily cap is reached, with an audit row', async () => {
+    const capped = await startTunnus({
+      schema: 'tunnus_dailycap_test',
+      env: { MAIL_DAILY_CAP: '2', RATE_LIMIT_EMAIL_PER_HOUR: '50', RATE_LIMIT_IP_PER_HOUR: '50' },
+    });
+    try {
+      const b = browser();
+      const { page } = await capped.startAuth(b);
+      const path = capped.interactionPath(page.body);
+      for (const who of ['c1', 'c2', 'c3']) {
+        await b.post(`${capped.origin}${path}/email`, { email: `${who}@example.org` });
+      }
+      expect(capped.mails.length).toBe(2);
+      const { rows } = await capped.pool.query(
+        "SELECT details FROM audit_events WHERE action = 'rate_limited'",
+      );
+      expect(rows[0].details.reason).toBe('daily');
+    } finally {
+      await capped.close();
+    }
+  });
+});
