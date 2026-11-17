@@ -1,6 +1,7 @@
 import { audit } from './audit.js';
 import { createAdminToken } from './adminTokens.js';
 import { createUser } from './accounts.js';
+import { isValidEmail } from './emailAddress.js';
 
 /** A problem with the bootstrap inputs (a usage error, not a system failure). */
 export class BootstrapInputError extends Error {}
@@ -15,8 +16,6 @@ export class BootstrapInputError extends Error {}
  * }} BootstrapInput
  */
 
-const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-
 /**
  * Check bootstrap inputs and return them normalised.
  * @param {BootstrapInput} input
@@ -27,7 +26,7 @@ export function validateBootstrapInput(input) {
   const email = String(input.email ?? '')
     .trim()
     .toLowerCase();
-  if (email.length > 254 || !EMAIL.test(email)) {
+  if (!isValidEmail(email)) {
     throw new BootstrapInputError('--email must be a valid email address');
   }
   const name = input.name?.trim();

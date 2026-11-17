@@ -1,6 +1,8 @@
 import Provider, { interactionPolicy } from 'oidc-provider';
 import { createAdapterClass } from './adapter.js';
 import { createFindAccount } from '../accounts.js';
+import { errorFields, logger } from '../logger.js';
+import { accountIdOf, touchLastLogin } from './loginActivity.js';
 
 /**
  * Build the oidc-provider instance.
@@ -100,6 +102,17 @@ export function createProvider({ config, pool, clients, jwks }) {
     }
     await next();
   });
+
+  // Activity without an interactive sign-in (silent authorization, refresh tokens) counts too.
+  const recordActivity = (/** @type {any} */ ctx) => {
+    const accountId = accountIdOf(ctx);
+    if (accountId)
+      touchLastLogin(pool, accountId).catch((err) =>
+        logger.error({ err: errorFields(err) }, 'last login update failed'),
+      );
+  };
+  provider.on('authorization.success', recordActivity);
+  provider.on('grant.success', recordActivity);
 
   if (config.trustProxy) provider.proxy = true;
   return provider;
