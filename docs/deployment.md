@@ -135,6 +135,20 @@ token once on stdout. Store the token at once; it is not shown again.
 docker compose exec app node bin/tunnus-admin.js bootstrap --email admin@example.org
 ```
 
+## Logs
+
+The service writes JSON lines to stdout with Pino. `LOG_LEVEL` sets the level
+(default `info`). Each response logs one `request` line: method, path, status,
+duration and `reqId`. The path has no query string, and `/link/<token>` segments
+are logged as `/link/:token`, so link tokens and addresses in queries stay out of
+the log. The request id is the client's `X-Request-Id` when it is short and
+plain, otherwise a random UUID; it is returned in the `X-Request-Id` response
+header, so a reverse proxy can pass its own id through. An unexpected error logs
+`request failed` with the error name, code and stack frames, not the message,
+and the user sees the branded error page (JSON under `/admin/api`). A failure
+outside a request (`uncaughtException`, `unhandledRejection`) is logged as
+`fatal error, exiting` and the process exits with status 1.
+
 ## Health and metrics
 
 ### Health

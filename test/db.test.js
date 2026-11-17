@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createPool } from '../src/db.js';
+import { logger } from '../src/logger.js';
 
 /** @type {import('pg').Pool[]} */
 const pools = [];
@@ -40,11 +41,12 @@ describe('createPool', () => {
   it('attaches an error handler that logs and does not throw', () => {
     const pool = make();
     expect(pool.listenerCount('error')).toBeGreaterThan(0);
-    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const log = vi.spyOn(logger, 'error').mockImplementation(() => {});
     expect(() => pool.emit('error', new Error('terminating connection'))).not.toThrow();
     expect(log).toHaveBeenCalledWith(
+      { err: expect.objectContaining({ name: 'Error' }) },
       'database pool error on an idle client',
-      'terminating connection',
     );
+    expect(JSON.stringify(log.mock.calls)).not.toContain('terminating connection');
   });
 });

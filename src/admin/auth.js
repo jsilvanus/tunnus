@@ -1,4 +1,6 @@
 import { audit } from '../audit.js';
+import { errorFields, logger } from '../logger.js';
+
 import { findActiveToken, TOKEN_PATTERN } from '../adminTokens.js';
 import { sendError } from './errors.js';
 
@@ -68,7 +70,7 @@ export function createAdminAuth({ pool, failureLimit = 20, windowMs = 10 * 60 * 
       };
       next();
     } catch (err) {
-      console.error('admin auth failed unexpectedly', err);
+      logger.error({ err: errorFields(err) }, 'admin auth failed unexpectedly');
       sendError(res, 500, 'internal', 'Internal error');
     }
   };

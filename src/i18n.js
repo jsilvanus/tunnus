@@ -27,6 +27,9 @@ const messages = {
     link_help: 'Confirm that you want to sign in.',
     link_other_browser: 'Type this code in the window where you started signing in:',
     link_invalid: 'This link is not valid any more. Start signing in again.',
+    error_title: 'Something went wrong',
+    error_body:
+      'Please try again in a few minutes. If the problem continues, contact the administrator.',
     mail_subject: 'Your sign-in code: {code}',
     mail_body:
       'Your sign-in code is {code}. It is valid for 10 minutes.\n\nOr open this link to sign in:\n{link}\n\nIf you did not try to sign in, ignore this message.',
@@ -84,6 +87,8 @@ const messages = {
     link_help: 'Vahvista, että haluat kirjautua.',
     link_other_browser: 'Kirjoita tämä koodi ikkunaan, jossa aloitit kirjautumisen:',
     link_invalid: 'Linkki ei ole enää voimassa. Aloita kirjautuminen uudelleen.',
+    error_title: 'Jotain meni vikaan',
+    error_body: 'Yritä uudelleen hetken kuluttua. Jos ongelma jatkuu, ota yhteyttä ylläpitoon.',
     mail_subject: 'Kirjautumiskoodisi: {code}',
     mail_body:
       'Kirjautumiskoodisi on {code}. Se on voimassa 10 minuuttia.\n\nVoit myös kirjautua tästä linkistä:\n{link}\n\nJos et yrittänyt kirjautua, voit ohittaa tämän viestin.',
@@ -141,6 +146,8 @@ const messages = {
     link_help: 'Bekräfta att du vill logga in.',
     link_other_browser: 'Skriv den här koden i fönstret där du började logga in:',
     link_invalid: 'Länken är inte längre giltig. Börja logga in på nytt.',
+    error_title: 'Något gick fel',
+    error_body: 'Försök igen om en stund. Om problemet kvarstår, kontakta administratören.',
     mail_subject: 'Din inloggningskod: {code}',
     mail_body:
       'Din inloggningskod är {code}. Den gäller i 10 minuter.\n\nEller öppna den här länken för att logga in:\n{link}\n\nOm du inte försökte logga in kan du bortse från meddelandet.',

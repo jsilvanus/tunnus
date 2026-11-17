@@ -1,5 +1,7 @@
 import express from 'express';
 import { audit } from '../audit.js';
+import { errorFields, logger } from '../logger.js';
+
 import { createAdminAuth } from './auth.js';
 import { AdminError, errorBody, sendError } from './errors.js';
 import { listOperations, loadSpec, readSpecText } from './spec.js';
@@ -153,7 +155,10 @@ export function createAdminRouter({
         body = errorBody(err.code, err.message, err.details);
         errorCode = err.code;
       } else {
-        console.error('admin handler failed', { operationId: op.operationId, err });
+        logger.error(
+          { operationId: op.operationId, err: errorFields(err) },
+          'admin handler failed',
+        );
         status = 500;
         body = INTERNAL;
         errorCode = 'internal';
@@ -163,11 +168,10 @@ export function createAdminRouter({
     if (validateResponses && errorCode !== 'internal') {
       const check = v.response(status, body);
       if (!check.ok) {
-        console.error('admin response does not match openapi.yaml', {
-          operationId: op.operationId,
-          status,
-          details: check.details,
-        });
+        logger.error(
+          { operationId: op.operationId, status, details: check.details },
+          'admin response does not match openapi.yaml',
+        );
         status = 500;
         body = INTERNAL;
         errorCode = 'internal';
@@ -184,7 +188,10 @@ export function createAdminRouter({
         details: errorCode === null ? { status, ...target.details } : { status, error: errorCode },
       });
     } catch (err) {
-      console.error('admin audit write failed', { operationId: op.operationId, err });
+      logger.error(
+        { operationId: op.operationId, err: errorFields(err) },
+        'admin audit write failed',
+      );
       status = 500;
       body = INTERNAL;
     }

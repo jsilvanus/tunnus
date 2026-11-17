@@ -147,7 +147,7 @@ From [`reviews/2026-11-17-code-review.md`](reviews/2026-11-17-code-review.md). I
 - [x] M7 Do not await mail send in `/email` (timing oracle)
 - [x] M8 Timeouts for Brevo and SMTP sends
 - [x] M9 Audit `err.name`, not `String(err)`, for mail errors
-- [ ] M10 Request logging, error middleware, branded error page
+- [x] M10 Request logging, error middleware, branded error page
 - [ ] L1 `email_verified` semantics and admin token model in `docs/security.md`
 - [ ] L2 `POST /continue` checks the session user is active
 - [ ] L3 `always_include_groups` covered for `POST /auth` and tested

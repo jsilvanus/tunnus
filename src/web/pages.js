@@ -159,3 +159,13 @@ export function consentPage(ctx, action, clientName, scopes) {
 <form method="post" action="${esc(action)}/abort"><button class="secondary">${esc(t(locale, 'deny'))}</button></form>`,
   );
 }
+
+/**
+ * The branded page for an unexpected error. It names no cause; the request id is in the response
+ * header and the log.
+ * @param {Ctx} ctx
+ */
+export function errorPage(ctx) {
+  const title = t(ctx.locale, 'error_title');
+  return layout(ctx, title, `<h2>${esc(title)}</h2><p>${esc(t(ctx.locale, 'error_body'))}</p>`);
+}
