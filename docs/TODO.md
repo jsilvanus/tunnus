@@ -69,21 +69,21 @@ Goal: a real relying party signs in through Tunnus and receives `groups`.
 
 ## Phase 3: Admin API
 
-- [ ] `openapi.yaml` for `/admin/api/v1`: users, groups, memberships,
+- [x] `openapi.yaml` for `/admin/api/v1`: users, groups, memberships,
       admin tokens, keys, audit events, clients (read-only)
-- [ ] Request and response validation from the spec
-- [ ] `admin_tokens` table; bearer auth; tokens tied to `is_admin` users
-- [ ] `tunnus-admin bootstrap --email …` creates the first admin and
+- [x] Request and response validation from the spec
+- [x] `admin_tokens` table; bearer auth; tokens tied to `is_admin` users
+- [x] `tunnus-admin bootstrap --email …` creates the first admin and
       prints a token once
-- [ ] Users: list, get, create, update (email, name, status), delete
-- [ ] Groups: list, create, update, delete (not default groups)
-- [ ] Memberships: grant, revoke, list by user and by group
-- [ ] Disabling or deleting a user ends sessions and revokes refresh
+- [x] Users: list, get, create, update (email, name, status), delete
+- [x] Groups: list, create, update, delete (not default groups)
+- [x] Memberships: grant, revoke, list by user and by group
+- [x] Disabling or deleting a user ends sessions and revokes refresh
       tokens
-- [ ] Keys: list, rotate, retire; JWKS keeps retired keys for a grace
+- [x] Keys: list, rotate, retire; JWKS keeps retired keys for a grace
       period
-- [ ] Audit: list with filters and paging; every admin call audited
-- [ ] Integration tests for each operation and for auth failures
+- [x] Audit: list with filters and paging; every admin call audited
+- [x] Integration tests for each operation and for auth failures
 
 ## Phase 4: CLI and MCP server
 

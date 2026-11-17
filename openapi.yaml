@@ -1,0 +1,853 @@
+openapi: 3.1.0
+info:
+  title: Tunnus admin API
+  version: 1.0.0
+  description: |
+    Administration API for Tunnus, served at `<issuer>/admin/api/v1`.
+
+    Every operation needs an admin token (`Authorization: Bearer tun_...`).
+    Tokens are opaque, stored only as a hash, expire, and belong to a user
+    with `is_admin`. There is no cookie authentication. Every authenticated
+    call writes an audit event naming the token's user.
+
+    This file is the contract: the server registers one route per
+    `operationId`, validates requests (and, in tests, responses) against it,
+    and the CLI and MCP server are generated from it.
+
+    `x-tunnus-destructive: true` marks operations that the MCP server leaves
+    out; they stay CLI-only.
+  license:
+    name: EUPL-1.2
+servers:
+  - url: '{issuer}/admin/api/v1'
+    variables:
+      issuer:
+        default: https://id.example.org
+security:
+  - adminToken: []
+tags:
+  - name: me
+  - name: admin-tokens
+  - name: users
+  - name: groups
+  - name: memberships
+  - name: keys
+  - name: audit
+  - name: clients
+
+paths:
+  /me:
+    get:
+      operationId: getMe
+      tags: [me]
+      summary: The admin user and token making this call
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /admin-tokens:
+    get:
+      operationId: listAdminTokens
+      tags: [admin-tokens]
+      summary: List admin tokens
+      description: Lists active tokens (not revoked, not expired) unless `include_inactive` is true. Token values are never returned.
+      parameters:
+        - name: user_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: include_inactive
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/AdminToken' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      operationId: createAdminToken
+      tags: [admin-tokens]
+      summary: Create an admin token
+      description: The token value is in the response only once. Without `user_id` the token is for the caller; `user_id` must name an active admin user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminTokenCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminTokenCreated' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /admin-tokens/{tokenId}:
+    parameters:
+      - { $ref: '#/components/parameters/TokenId' }
+    delete:
+      operationId: revokeAdminToken
+      tags: [admin-tokens]
+      summary: Revoke an admin token
+      description: Idempotent; revoking an already revoked token returns 204.
+      responses:
+        '204': { description: Revoked }
+        default: { $ref: '#/components/responses/Error' }
+
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List users, ordered by email
+      parameters:
+        - name: q
+          in: query
+          description: Case-insensitive substring of email or display name
+          schema: { type: string, minLength: 1, maxLength: 200 }
+        - name: email
+          in: query
+          description: Exact email address (case-insensitive)
+          schema: { type: string, minLength: 1, maxLength: 254 }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/UserStatus' }
+        - name: is_admin
+          in: query
+          schema: { type: boolean }
+        - name: group_id
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/User' }
+                  next_cursor: { $ref: '#/components/schemas/NextCursor' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create a user
+      description: Any email address is allowed (sign-up rules do not apply). The user joins the default groups.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /users/{userId}:
+    parameters:
+      - { $ref: '#/components/parameters/UserId' }
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get a user
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: Update email, display name, status or admin flag
+      description: |
+        Setting `status` to `disabled` ends the user's sessions, revokes their
+        grants and refresh tokens, and revokes their admin tokens. Removing
+        `is_admin` revokes their admin tokens. A change that would leave no
+        active admin fails with `409 last_admin`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserUpdate' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: deleteUser
+      tags: [users]
+      summary: Delete a user
+      description: Ends sessions, revokes tokens and removes the user row and memberships. Audit rows keep only the user id. Deleting the last active admin fails with `409 last_admin`.
+      x-tunnus-destructive: true
+      responses:
+        '204': { description: Deleted }
+        default: { $ref: '#/components/responses/Error' }
+
+  /users/{userId}/revoke-sessions:
+    parameters:
+      - { $ref: '#/components/parameters/UserId' }
+    post:
+      operationId: revokeUserSessions
+      tags: [users]
+      summary: End all sessions and revoke all grants and tokens of a user
+      description: The user can sign in again. Admin tokens are not affected.
+      x-tunnus-destructive: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RevokeResult' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /users/{userId}/groups:
+    parameters:
+      - { $ref: '#/components/parameters/UserId' }
+    get:
+      operationId: listUserGroups
+      tags: [memberships]
+      summary: List a user's group memberships, ordered by group name
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Membership' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /groups:
+    get:
+      operationId: listGroups
+      tags: [groups]
+      summary: List groups, ordered by name
+      parameters:
+        - name: name
+          in: query
+          description: Exact group name
+          schema: { $ref: '#/components/schemas/GroupName' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Group' }
+                  next_cursor: { $ref: '#/components/schemas/NextCursor' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      operationId: createGroup
+      tags: [groups]
+      summary: Create a group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GroupCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /groups/{groupId}:
+    parameters:
+      - { $ref: '#/components/parameters/GroupId' }
+    get:
+      operationId: getGroup
+      tags: [groups]
+      summary: Get a group
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      operationId: updateGroup
+      tags: [groups]
+      summary: Rename a group or change its description
+      description: Default groups cannot be renamed (`409 default_group`); their description can change.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GroupUpdate' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: deleteGroup
+      tags: [groups]
+      summary: Delete a group and its memberships
+      description: Default groups cannot be deleted (`409 default_group`).
+      x-tunnus-destructive: true
+      responses:
+        '204': { description: Deleted }
+        default: { $ref: '#/components/responses/Error' }
+
+  /groups/{groupId}/members:
+    parameters:
+      - { $ref: '#/components/parameters/GroupId' }
+    get:
+      operationId: listGroupMembers
+      tags: [memberships]
+      summary: List a group's members, ordered by email
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Membership' }
+                  next_cursor: { $ref: '#/components/schemas/NextCursor' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /groups/{groupId}/members/{userId}:
+    parameters:
+      - { $ref: '#/components/parameters/GroupId' }
+      - { $ref: '#/components/parameters/UserId' }
+    put:
+      operationId: grantMembership
+      tags: [memberships]
+      summary: Add a user to a group
+      description: Idempotent. Returns 201 when the membership was created, 200 when it already existed (unchanged). The new `groups` claim applies at the user's next token refresh or sign-in.
+      responses:
+        '200':
+          description: Already a member
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Membership' }
+        '201':
+          description: Granted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Membership' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: revokeMembership
+      tags: [memberships]
+      summary: Remove a user from a group
+      description: Returns 404 `not_found` when the user is not a member.
+      responses:
+        '204': { description: Removed }
+        default: { $ref: '#/components/responses/Error' }
+
+  /keys:
+    get:
+      operationId: listKeys
+      tags: [keys]
+      summary: List signing keys, newest first
+      parameters:
+        - name: include_unpublished
+          in: query
+          description: Also list retired keys whose grace period has ended
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/SigningKey' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /keys/rotate:
+    post:
+      operationId: rotateKeys
+      tags: [keys]
+      summary: Rotate signing keys
+      description: |
+        The `next` key becomes `active`, the old `active` key becomes
+        `retired` and stays published in JWKS for the grace period
+        (`KEY_RETIRED_GRACE_DAYS`), and a new `next` key is created. If no
+        `next` key exists, one is created and promoted at once, and the
+        response carries the warning `next_key_missing`.
+      x-tunnus-destructive: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KeyRotation' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /keys/{kid}/retire:
+    parameters:
+      - name: kid
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 100 }
+    post:
+      operationId: retireKey
+      tags: [keys]
+      summary: Retire a key and remove it from JWKS now
+      description: |
+        For a `retired` key, ends its grace period now. For the `next` key,
+        retires it unpublished and creates a new `next` key. The `active`
+        key cannot be retired (`409 key_active`); rotate first.
+      x-tunnus-destructive: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SigningKey' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /audit-events:
+    get:
+      operationId: listAuditEvents
+      tags: [audit]
+      summary: List audit events, newest first
+      parameters:
+        - name: action
+          in: query
+          description: Exact action, or a prefix ending in `*` (for example `admin.*`)
+          schema: { type: string, minLength: 1, maxLength: 100 }
+        - name: actor_user_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: target_type
+          in: query
+          schema: { type: string, minLength: 1, maxLength: 50 }
+        - name: target_id
+          in: query
+          schema: { type: string, minLength: 1, maxLength: 200 }
+        - name: since
+          in: query
+          description: Inclusive lower bound on `at`
+          schema: { type: string, format: date-time }
+        - name: until
+          in: query
+          description: Exclusive upper bound on `at`
+          schema: { type: string, format: date-time }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/AuditEvent' }
+                  next_cursor: { $ref: '#/components/schemas/NextCursor' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /clients:
+    get:
+      operationId: listClients
+      tags: [clients]
+      summary: List configured clients (read-only, from CLIENTS_FILE)
+      description: Client secrets are never returned.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Client' }
+        default: { $ref: '#/components/responses/Error' }
+
+components:
+  securitySchemes:
+    adminToken:
+      type: http
+      scheme: bearer
+      description: Opaque admin token, `tun_` followed by 43 base64url characters
+
+  parameters:
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    GroupId:
+      name: groupId
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    TokenId:
+      name: tokenId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque `next_cursor` from the previous page
+      schema: { type: string, minLength: 1, maxLength: 500 }
+
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+              description: |
+                Stable machine-readable code: `invalid_request` (400),
+                `unauthorized` (401), `forbidden` (403), `not_found` (404),
+                `conflict`, `last_admin`, `default_group`, `key_active` (409),
+                `rate_limited` (429), `internal` (500).
+            message: { type: string }
+            details:
+              type: array
+              items:
+                type: object
+                required: [path, message]
+                additionalProperties: false
+                properties:
+                  path: { type: string }
+                  message: { type: string }
+
+    NextCursor:
+      type: [string, 'null']
+      description: Pass as `cursor` to get the next page; null on the last page
+
+    Timestamp:
+      type: string
+      format: date-time
+
+    NullableTimestamp:
+      type: [string, 'null']
+      format: date-time
+
+    Email:
+      type: string
+      format: email
+      minLength: 3
+      maxLength: 254
+
+    DisplayName:
+      type: string
+      minLength: 1
+      maxLength: 200
+
+    UserStatus:
+      type: string
+      enum: [active, disabled]
+
+    GroupName:
+      type: string
+      minLength: 1
+      maxLength: 128
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$'
+      description: Letters, digits, `.`, `_`, `-`; `/` separates segments; no leading or trailing slash
+
+    User:
+      type: object
+      required: [id, email, display_name, status, is_admin, created_at, last_login_at, groups]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid, description: The OIDC `sub` }
+        email: { $ref: '#/components/schemas/Email' }
+        display_name: { type: string }
+        status: { $ref: '#/components/schemas/UserStatus' }
+        is_admin: { type: boolean }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        last_login_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        groups:
+          type: array
+          description: Group names, sorted
+          items: { type: string }
+
+    UserCreate:
+      type: object
+      required: [email]
+      additionalProperties: false
+      properties:
+        email: { $ref: '#/components/schemas/Email' }
+        display_name:
+          $ref: '#/components/schemas/DisplayName'
+          description: Defaults to a name derived from the email local part
+        is_admin: { type: boolean, default: false }
+
+    UserUpdate:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        email: { $ref: '#/components/schemas/Email' }
+        display_name: { $ref: '#/components/schemas/DisplayName' }
+        status: { $ref: '#/components/schemas/UserStatus' }
+        is_admin: { type: boolean }
+
+    RevokeResult:
+      type: object
+      required: [revoked]
+      additionalProperties: false
+      properties:
+        revoked:
+          type: integer
+          minimum: 0
+          description: Number of sessions, grants and tokens removed
+
+    Group:
+      type: object
+      required: [id, name, description, is_default, member_count]
+      additionalProperties: false
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        description: { type: string }
+        is_default: { type: boolean, description: Listed in DEFAULT_GROUPS }
+        member_count: { type: integer, minimum: 0 }
+
+    GroupCreate:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { $ref: '#/components/schemas/GroupName' }
+        description: { type: string, maxLength: 500, default: '' }
+
+    GroupUpdate:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name: { $ref: '#/components/schemas/GroupName' }
+        description: { type: string, maxLength: 500 }
+
+    Membership:
+      type: object
+      required: [user_id, email, display_name, group_id, group_name, granted_by, granted_at]
+      additionalProperties: false
+      properties:
+        user_id: { type: string, format: uuid }
+        email: { type: string }
+        display_name: { type: string }
+        group_id: { type: integer }
+        group_name: { type: string }
+        granted_by:
+          type: [string, 'null']
+          format: uuid
+          description: Admin who granted it; null for default groups joined at sign-up
+        granted_at: { $ref: '#/components/schemas/Timestamp' }
+
+    AdminToken:
+      type: object
+      required: [id, user_id, label, created_at, created_by, expires_at, last_used_at, revoked_at]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        label: { type: string }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        created_by:
+          type: [string, 'null']
+          format: uuid
+          description: Null for tokens made by `tunnus-admin bootstrap`
+        expires_at: { $ref: '#/components/schemas/Timestamp' }
+        last_used_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        revoked_at: { $ref: '#/components/schemas/NullableTimestamp' }
+
+    AdminTokenCreate:
+      type: object
+      required: [label]
+      additionalProperties: false
+      properties:
+        label: { type: string, minLength: 1, maxLength: 100 }
+        expires_in_days: { type: integer, minimum: 1, maximum: 365, default: 90 }
+        user_id: { type: string, format: uuid }
+
+    AdminTokenCreated:
+      type: object
+      description: An AdminToken plus the token value, which is shown only in this response
+      required:
+        [id, user_id, label, created_at, created_by, expires_at, last_used_at, revoked_at, token]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        label: { type: string }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        created_by: { type: [string, 'null'], format: uuid }
+        expires_at: { $ref: '#/components/schemas/Timestamp' }
+        last_used_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        revoked_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        token:
+          type: string
+          pattern: '^tun_[A-Za-z0-9_-]{43}$'
+
+    Me:
+      type: object
+      required: [user, token]
+      additionalProperties: false
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        token: { $ref: '#/components/schemas/AdminToken' }
+
+    SigningKey:
+      type: object
+      required:
+        [
+          kid,
+          alg,
+          status,
+          created_at,
+          activated_at,
+          retired_at,
+          published_until,
+          published,
+          public_jwk,
+        ]
+      additionalProperties: false
+      properties:
+        kid: { type: string }
+        alg: { type: string }
+        status: { type: string, enum: [next, active, retired] }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        activated_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        retired_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        published_until:
+          $ref: '#/components/schemas/NullableTimestamp'
+          description: For retired keys, when they leave JWKS
+        published: { type: boolean, description: Currently in JWKS }
+        public_jwk:
+          type: object
+          description: Public JWK (never the private key)
+          required: [kty, kid]
+          properties:
+            kty: { type: string }
+            kid: { type: string }
+
+    KeyRotation:
+      type: object
+      required: [active, next, retired, warnings]
+      additionalProperties: false
+      properties:
+        active: { $ref: '#/components/schemas/SigningKey' }
+        next: { $ref: '#/components/schemas/SigningKey' }
+        retired: { $ref: '#/components/schemas/SigningKey' }
+        warnings:
+          type: array
+          items: { type: string, enum: [next_key_missing] }
+
+    AuditEvent:
+      type: object
+      required: [id, at, actor_user_id, action, target_type, target_id, ip, details]
+      additionalProperties: false
+      properties:
+        id: { type: string, description: Monotonic id (bigint as string) }
+        at: { $ref: '#/components/schemas/Timestamp' }
+        actor_user_id: { type: [string, 'null'], format: uuid }
+        action: { type: string }
+        target_type: { type: [string, 'null'] }
+        target_id: { type: [string, 'null'] }
+        ip: { type: [string, 'null'] }
+        details: { type: object }
+
+    Client:
+      type: object
+      required:
+        [
+          client_id,
+          redirect_uris,
+          post_logout_redirect_uris,
+          token_endpoint_auth_method,
+          grant_types,
+          first_party,
+          always_include_groups,
+        ]
+      additionalProperties: false
+      properties:
+        client_id: { type: string }
+        redirect_uris: { type: array, items: { type: string } }
+        post_logout_redirect_uris: { type: array, items: { type: string } }
+        token_endpoint_auth_method: { type: string }
+        grant_types: { type: array, items: { type: string } }
+        first_party: { type: boolean }
+        always_include_groups: { type: boolean }

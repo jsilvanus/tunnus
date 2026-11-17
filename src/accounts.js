@@ -29,27 +29,59 @@ export async function findUserByEmail(pool, email) {
 }
 
 /**
+ * A pool, or a client checked out of one for a transaction.
+ * @typedef {import('pg').Pool | import('pg').PoolClient} Queryable
+ */
+
+/**
  * Create a user, prefilling the display name from the email, and add them to the default groups.
- * @param {import('pg').Pool} pool
+ * Pass a client to run it inside the caller's transaction.
+ * @param {Queryable} db
  * @param {string} email
  * @param {string[]} defaultGroups
  * @param {string} [displayName]
  */
-export async function createUser(pool, email, defaultGroups, displayName) {
+export async function createUser(db, email, defaultGroups, displayName) {
   const e = email.trim().toLowerCase();
-  const { rows } = await pool.query(
+  const { rows } = await db.query(
     'INSERT INTO users (email, display_name) VALUES ($1, $2) RETURNING id',
     [e, displayName?.trim() || displayNameFromEmail(e)],
   );
   const id = rows[0].id;
   for (const name of defaultGroups) {
-    await pool.query(`INSERT INTO groups (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`, [name]);
-    await pool.query(
+    await db.query(`INSERT INTO groups (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`, [name]);
+    await db.query(
       `INSERT INTO user_groups (user_id, group_id) SELECT $1, id FROM groups WHERE name = $2`,
       [id, name],
     );
   }
   return id;
+}
+
+/**
+ * End every session, grant, authorization code, access token and refresh token of a user.
+ * Every oidc-provider model tied to an account carries `accountId` at the top level of its payload.
+ * @param {Queryable} db
+ * @param {string} userId
+ * @returns {Promise<number>} rows deleted
+ */
+export async function revokeUserSessions(db, userId) {
+  const { rowCount } = await db.query(
+    "DELETE FROM oidc_payloads WHERE payload->>'accountId' = $1",
+    [userId],
+  );
+  return rowCount ?? 0;
+}
+
+/**
+ * Create the configured default groups if they do not exist yet. Idempotent.
+ * @param {import('pg').Pool} pool
+ * @param {string[]} names
+ */
+export async function ensureDefaultGroups(pool, names) {
+  for (const name of names) {
+    await pool.query('INSERT INTO groups (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [name]);
+  }
 }
 
 /**
