@@ -148,5 +148,18 @@ From [`reviews/2026-11-17-code-review.md`](reviews/2026-11-17-code-review.md). I
 - [ ] M8 Timeouts for Brevo and SMTP sends
 - [ ] M9 Audit `err.name`, not `String(err)`, for mail errors
 - [ ] M10 Request logging, error middleware, branded error page
-- [ ] L1 to L14 Low items: triage when the above are done
+- [ ] L1 `email_verified` semantics and admin token model in `docs/security.md`
+- [ ] L2 `POST /continue` checks the session user is active
+- [ ] L3 `always_include_groups` covered for `POST /auth` and tested
+- [ ] L4 first-party grants gain later-requested scopes; tested
+- [ ] L5 valid admin token accepted when the IP is over the failure limit
+- [ ] L6 admin token model documented in `docs/security.md`
+- [ ] L7 `POST /name` unique violation shows the expired page
+- [ ] L8 `src/emailAddress.js` replaces the loose email check
+- [ ] L9 `last_login_at` updated on `authorization.success` / `grant.success`, hourly
+- [x] L10 Supply chain: `permissions`, concurrency, `npm audit`, Dependabot, deploy workflow . Skipped: pinning actions by commit SHA and the base image by digest. Dependabot now proposes updates for both, and the pins are a separate change that needs a decision on who reviews them.
+- [ ] L11 Branded logout pages, `features.revocation` enabled
+- [ ] L12 `grant_types` documented in `clients.example.json` and `docs/deployment.md`
+- [ ] L13 Failed-verification lockout across interactions (10 per email per hour)
+- [ ] L14 Code storage and threat model in `docs/security.md`
 - [ ] Run the OpenID conformance suite after H1 to M10 are fixed

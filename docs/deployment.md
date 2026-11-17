@@ -9,6 +9,7 @@ This guide is for running Tunnus in production. For the settings themselves see
 The image is published to the GitHub Container Registry as
 `ghcr.io/<owner>/<repo>` by the `publish-image` workflow.
 
+- A push to `main` publishes `main` and `sha-<short commit>`; it never moves `latest`.
 - A manual run publishes `sha-<short commit>`, plus the extra tag and `latest`
   when the inputs ask for them.
 - Pushing a git tag `v*` publishes the image too. Tag `v1.2.3` publishes
@@ -19,6 +20,45 @@ The image is published to the GitHub Container Registry as
 Pin a version tag in production (`1.2.3`), not `latest`. The image runs as the
 unprivileged `node` user, listens on `PORT` (default 3000) and has a container
 health check that calls `/health`.
+
+## Deployment workflow
+
+The `publish-image` workflow (`.github/workflows/publish-image.yml`) runs on:
+
+- a push to `main`: builds and pushes `main` and `sha-<short commit>`. It never
+  moves `latest`.
+- a push of a version tag `v*`: publishes the tags listed above, then calls the
+  deploy webhook.
+- a manual run (`workflow_dispatch`): publishes `sha-<short commit>` plus the
+  optional inputs. It does not call the deploy webhook.
+
+Every build records provenance and an SBOM attestation, and uses the GitHub
+Actions build cache. Runs for one ref are serialised; a newer push to `main`
+cancels a build still in progress for an older commit, while tag builds are
+never cancelled.
+
+The `deploy` job runs after a successful publish, only for pushes to `main` and
+version tags. It does nothing unless two repository secrets are set:
+
+| Secret                 | Notes                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| `DEPLOY_WEBHOOK_URL`   | The URL to POST to. Empty or missing means no deploy step runs; the job is skipped without failing. |
+| `DEPLOY_WEBHOOK_TOKEN` | Optional. When set, it is sent as `Authorization: Bearer <token>`. Never printed to the log.        |
+
+The job POSTs a JSON body with `curl --fail --max-time 30`, so a non-2xx answer
+fails the run:
+
+```json
+{
+  "image": "ghcr.io/<owner>/<repo>",
+  "tag": "sha-1a2b3c4",
+  "sha": "1a2b3c4d5e6f...",
+  "ref": "refs/heads/main"
+}
+```
+
+For a version tag, `tag` is the tag name (`v1.2.3`) and `ref` is `refs/tags/v1.2.3`.
+The receiver decides what to deploy; nothing in this repository names a target.
 
 ## Required settings and secrets
 

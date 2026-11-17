@@ -1,10 +1,16 @@
 name: publish-image
 # Builds the Docker image and pushes it to GitHub Container Registry.
-# Runs on version tags (v1.2.3) and on manual dispatch.
+# Runs on version tags (v1.2.3), on pushes to main and on manual dispatch.
 # A tag v1.2.3 publishes 1.2.3, 1.2, sha-<short> and moves latest. A pre-release tag
-# (v1.2.3-rc.1) publishes 1.2.3-rc.1 and sha-<short> only.
+# (v1.2.3-rc.1) publishes 1.2.3-rc.1 and sha-<short> only. A push to main publishes
+# main and sha-<short>; it never moves latest.
+#
+# The deploy job POSTs to the deployment webhook when the repository secret
+# DEPLOY_WEBHOOK_URL is set. See docs/deployment.md, "Deployment workflow".
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -20,6 +26,9 @@ on:
 permissions:
   contents: read
   packages: write
+concurrency:
+  group: publish-image-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -42,11 +51,72 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref_name, '-') }}
             type=sha,format=short
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
             type=raw,value=latest,enable=${{ inputs.latest == true || (github.ref_type == 'tag' && !contains(github.ref_name, '-')) }}
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
+          provenance: true
+          sbom: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: publish
+    # Runs only for pushes to main and version tags. Whether a webhook is configured is
+    # checked in the first step, because the secrets context is not available in `if`.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: deploy-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Check that a deploy webhook is configured
+        id: configured
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        run: |
+          if [ -n "$DEPLOY_WEBHOOK_URL" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No DEPLOY_WEBHOOK_URL secret; skipping deploy."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build the webhook payload
+        if: steps.configured.outputs.enabled == 'true'
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          SHORT_SHA="${SHA:0:7}"
+          if [ "${REF_NAME}" = "main" ] && [ "${REF}" = "refs/heads/main" ]; then
+            TAG="sha-${SHORT_SHA}"
+          else
+            TAG="${REF_NAME}"
+          fi
+          jq -n --arg image "$IMAGE" --arg tag "$TAG" --arg sha "$SHA" --arg ref "$REF" \
+            '{image: $image, tag: $tag, sha: $sha, ref: $ref}' > "$RUNNER_TEMP/deploy.json"
+      - name: POST the deploy webhook
+        if: steps.configured.outputs.enabled == 'true'
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+          DEPLOY_WEBHOOK_TOKEN: ${{ secrets.DEPLOY_WEBHOOK_TOKEN }}
+        run: |
+          if [ -n "$DEPLOY_WEBHOOK_TOKEN" ]; then
+            curl --fail --silent --show-error --max-time 30 \
+              -H 'Content-Type: application/json' \
+              -H "Authorization: Bearer ${DEPLOY_WEBHOOK_TOKEN}" \
+              --data @"$RUNNER_TEMP/deploy.json" "$DEPLOY_WEBHOOK_URL"
+          else
+            curl --fail --silent --show-error --max-time 30 \
+              -H 'Content-Type: application/json' \
+              --data @"$RUNNER_TEMP/deploy.json" "$DEPLOY_WEBHOOK_URL"
+          fi
