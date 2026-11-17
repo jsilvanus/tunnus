@@ -6,8 +6,9 @@ import { sendError } from './errors.js';
 
 /**
  * Bearer-token middleware for the admin API. Sets `req.admin` on success.
- * Failures are audited as `admin.auth_failed` with a reason, and an IP with more than
- * `failureLimit` failures in `windowMs` gets 429 (not audited).
+ * Failures are audited as `admin.auth_failed` with a reason. An IP with more than `failureLimit`
+ * failures in `windowMs` gets 429 (not audited) for requests without a valid token; a valid token
+ * is always accepted.
  * @param {{ pool: import('pg').Pool, failureLimit?: number, windowMs?: number }} deps
  * @returns {import('express').RequestHandler}
  */
@@ -31,17 +32,18 @@ export function createAdminAuth({ pool, failureLimit = 20, windowMs = 10 * 60 * 
     const ip = req.ip ?? null;
     const key = ip ?? 'unknown';
     try {
-      if (recent(key, Date.now()).length > failureLimit) {
-        return void sendError(
-          res,
-          429,
-          'rate_limited',
-          'Too many failed attempts; try again later',
-        );
-      }
-
+      // The token is checked first: a valid token is accepted even from an IP over the limit.
+      // The limit only refuses requests whose token is missing or invalid.
       /** @param {string} reason */
       const fail = async (reason) => {
+        if (recent(key, Date.now()).length > failureLimit) {
+          return void sendError(
+            res,
+            429,
+            'rate_limited',
+            'Too many failed attempts; try again later',
+          );
+        }
         failures.set(key, [...recent(key, Date.now()), Date.now()]);
         await audit(pool, { action: 'admin.auth_failed', ip, details: { reason } });
         res.set('WWW-Authenticate', 'Bearer');
