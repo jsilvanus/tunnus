@@ -187,6 +187,7 @@ export async function startTunnus({ schema, env = {}, clients }) {
     startAuth,
     interactionPath,
     exchange,
+    holder,
     async close() {
       holder.stop();
       await new Promise((r) => server.close(r));

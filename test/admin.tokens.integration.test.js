@@ -216,12 +216,14 @@ describe('request validation', () => {
   });
 
   it('treats an empty JSON request as bodyless', async () => {
-    // POST /keys/rotate takes no body; it is a stub, so 501 shows the body check passed.
-    const res = await t.api('POST', '/keys/rotate', {
+    // POST /users/{id}/revoke-sessions takes no body. An empty JSON body must not be a 400.
+    const userId = await createUser(t.pool, 'empty.body@example.org', []);
+    const res = await t.api('POST', `/users/${userId}/revoke-sessions`, {
       raw: '',
       headers: { 'content-type': 'application/json' },
     });
-    expect(res.status).toBe(501);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ revoked: 0 });
   });
 
   it('rejects an unknown query parameter and a badly typed one', async () => {
@@ -241,14 +243,5 @@ describe('request validation', () => {
     const res = await t.api('GET', '/nope');
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('not_found');
-  });
-});
-
-describe('stubs', () => {
-  // Other handlers are not written yet. Delete this test when the users, groups, keys, audit and clients handlers land.
-  it('stubs return 501', async () => {
-    const res = await t.api('GET', '/users');
-    expect(res.status).toBe(501);
-    expect(res.body.error.code).toBe('not_implemented');
   });
 });

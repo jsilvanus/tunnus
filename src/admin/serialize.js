@@ -57,3 +57,34 @@ export function tokenJson(row) {
     revoked_at: iso(row.revoked_at),
   };
 }
+
+/**
+ * The Group schema. `is_default` comes from configuration, not from the database.
+ * @param {Record<string, any>} row a group row with member_count
+ * @param {string[]} defaultGroups
+ */
+export function groupJson(row, defaultGroups) {
+  return {
+    id: Number(row.id),
+    name: row.name,
+    description: row.description,
+    is_default: defaultGroups.includes(row.name),
+    member_count: Number(row.member_count),
+  };
+}
+
+/**
+ * The Membership schema. Expects a row from the membership query in handlers/groups.js.
+ * @param {Record<string, any>} row
+ */
+export function membershipJson(row) {
+  return {
+    user_id: row.user_id,
+    email: row.email,
+    display_name: row.display_name,
+    group_id: Number(row.group_id),
+    group_name: row.group_name,
+    granted_by: row.granted_by ?? null,
+    granted_at: iso(row.granted_at),
+  };
+}
