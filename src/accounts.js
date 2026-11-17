@@ -53,6 +53,17 @@ export async function createUser(pool, email, defaultGroups, displayName) {
 }
 
 /**
+ * Create the configured default groups if they do not exist yet. Idempotent.
+ * @param {import('pg').Pool} pool
+ * @param {string[]} names
+ */
+export async function ensureDefaultGroups(pool, names) {
+  for (const name of names) {
+    await pool.query('INSERT INTO groups (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [name]);
+  }
+}
+
+/**
  * Account lookup for oidc-provider's findAccount.
  * @param {import('pg').Pool} pool
  */

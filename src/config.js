@@ -15,10 +15,11 @@ function int(env, name, fallback) {
 }
 
 /**
+ * Split a comma-separated list, trimming and dropping empty items.
  * @param {string | undefined} v
  * @returns {string[]}
  */
-function list(v) {
+export function parseList(v) {
   return (v ?? '')
     .split(',')
     .map((s) => s.trim())
@@ -70,12 +71,12 @@ export function loadConfig(env = process.env) {
     databaseUrl: /** @type {string} */ (env.DATABASE_URL),
     port: int(env, 'PORT', 3000),
     keyEncryptionSecret: /** @type {string} */ (env.KEY_ENCRYPTION_SECRET),
-    cookieSecrets: list(env.COOKIE_SECRETS),
+    cookieSecrets: parseList(env.COOKIE_SECRETS),
     trustProxy: trustProxy === 'true' ? true : trustProxy === 'false' ? false : trustProxy,
     clientsFile: env.CLIENTS_FILE ?? '',
     signupAllow: env.SIGNUP_EMAIL_ALLOW ?? '',
     signupDeny: env.SIGNUP_EMAIL_DENY ?? '',
-    defaultGroups: list(env.DEFAULT_GROUPS),
+    defaultGroups: parseList(env.DEFAULT_GROUPS),
     sessionTtlDays: int(env, 'SESSION_TTL_DAYS', 14),
     mailProvider: /** @type {'console' | 'smtp' | 'brevo'} */ (env.MAIL_PROVIDER ?? 'console'),
     mailFrom: env.MAIL_FROM ?? 'Tunnus <no-reply@localhost>',
@@ -98,6 +99,9 @@ export function loadConfig(env = process.env) {
     },
     defaultLocale: /** @type {'fi' | 'sv' | 'en'} */ (env.DEFAULT_LOCALE ?? 'en'),
     retention: loadRetentionConfig(env),
+    keyRetiredGraceDays: int(env, 'KEY_RETIRED_GRACE_DAYS', 7),
+    keyReloadIntervalSeconds: int(env, 'KEY_RELOAD_INTERVAL_SECONDS', 60),
+    adminValidateResponses: env.ADMIN_VALIDATE_RESPONSES === 'true',
   };
 }
 

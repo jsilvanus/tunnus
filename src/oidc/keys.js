@@ -63,3 +63,15 @@ export async function loadJwks(pool, secret) {
   );
   return { keys: rows.map((r) => JSON.parse(decrypt(r.private_jwk, secret))) };
 }
+
+/**
+ * Kids of the keys that loadJwks publishes, in the same order. Used to detect key changes made elsewhere.
+ * @param {import('pg').Pool} pool
+ * @returns {Promise<string[]>}
+ */
+export async function publishedKids(pool) {
+  const { rows } = await pool.query(
+    "SELECT kid FROM signing_keys ORDER BY (status = 'active') DESC, created_at DESC",
+  );
+  return rows.map((r) => r.kid);
+}

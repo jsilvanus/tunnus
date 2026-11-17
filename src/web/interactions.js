@@ -18,9 +18,9 @@ import {
 
 /**
  * End-user interaction pages: email, code, link, name, account choice and consent.
- * @param {{ config: import('../config.js').Config, pool: import('pg').Pool, provider: any, mailer: import('../mail.js').Mailer }} deps
+ * @param {{ config: import('../config.js').Config, pool: import('pg').Pool, getProvider: () => any, mailer: import('../mail.js').Mailer }} deps
  */
-export function createInteractionRouter({ config, pool, provider, mailer }) {
+export function createInteractionRouter({ config, pool, getProvider, mailer }) {
   const router = express.Router();
   const canSignUp = createSignupRule({ allow: config.signupAllow, deny: config.signupDeny });
   const form = express.urlencoded({ extended: false });
@@ -39,7 +39,7 @@ export function createInteractionRouter({ config, pool, provider, mailer }) {
    */
   const details = async (req, res) => {
     try {
-      return await provider.interactionDetails(req, res);
+      return await getProvider().interactionDetails(req, res);
     } catch {
       return undefined;
     }
@@ -68,7 +68,7 @@ export function createInteractionRouter({ config, pool, provider, mailer }) {
       targetId: userId,
       ip: req.ip,
     });
-    await provider.interactionFinished(
+    await getProvider().interactionFinished(
       req,
       res,
       { login: { accountId: userId } },
@@ -117,7 +117,7 @@ export function createInteractionRouter({ config, pool, provider, mailer }) {
       }
       return void res.send(emailPage(ctx, `${base(d.uid)}/email`));
     }
-    const client = await provider.Client.find(d.params.client_id);
+    const client = await getProvider().Client.find(d.params.client_id);
     const scopes = String(d.params.scope ?? '')
       .split(' ')
       .filter(Boolean);
@@ -254,13 +254,13 @@ export function createInteractionRouter({ config, pool, provider, mailer }) {
     if (!d) return expired(req, res);
     const { prompt, params, session } = d;
     const grant = d.grantId
-      ? await provider.Grant.find(d.grantId)
-      : new provider.Grant({ accountId: session.accountId, clientId: params.client_id });
+      ? await getProvider().Grant.find(d.grantId)
+      : new (getProvider().Grant)({ accountId: session.accountId, clientId: params.client_id });
     if (prompt.details.missingOIDCScope)
       grant.addOIDCScope(prompt.details.missingOIDCScope.join(' '));
     if (prompt.details.missingOIDCClaims) grant.addOIDCClaims(prompt.details.missingOIDCClaims);
     const grantId = await grant.save();
-    await provider.interactionFinished(
+    await getProvider().interactionFinished(
       req,
       res,
       { consent: { grantId } },
@@ -269,7 +269,7 @@ export function createInteractionRouter({ config, pool, provider, mailer }) {
   });
 
   router.post('/interaction/:uid/confirm/abort', form, async (req, res) => {
-    await provider.interactionFinished(
+    await getProvider().interactionFinished(
       req,
       res,
       { error: 'access_denied', error_description: 'The user denied the request' },

@@ -23,6 +23,24 @@ Every setting is an environment variable; see [`.env.example`](.env.example).
 Nothing deployment-specific (domains, groups, clients, branding, controller
 details) is built into the code.
 
+## Administration
+
+The first admin is created inside the container. The command runs migrations,
+creates the user (or promotes an existing one), and prints an admin token once
+on stdout. Store it at once; it is not shown again.
+
+```bash
+docker compose exec app node bin/tunnus-admin.js bootstrap --email admin@example.org
+```
+
+The admin API is at `<issuer>/admin/api/v1`. Its contract is
+[`openapi.yaml`](openapi.yaml), also served at `<issuer>/admin/api/v1/openapi.yaml`.
+Every call needs an admin token:
+
+```bash
+curl -H "Authorization: Bearer tun_..." https://id.example.org/admin/api/v1/me
+```
+
 ## Licence
 
 [EUPL-1.2](LICENSE).

@@ -4,6 +4,7 @@ import pg from 'pg';
 import { createApp } from '../../src/app.js';
 import { loadConfig } from '../../src/config.js';
 import { createPool, migrate } from '../../src/db.js';
+import { ensureDefaultGroups } from '../../src/accounts.js';
 import { createMailer } from '../../src/mail.js';
 import { ensureSigningKey } from '../../src/oidc/keys.js';
 
@@ -88,10 +89,12 @@ export async function startTunnus({ schema, env = {}, clients }) {
     SIGNUP_EMAIL_ALLOW: '*@example.org',
     SIGNUP_EMAIL_DENY: 'ext-*@example.org',
     DEFAULT_GROUPS: 'all',
+    KEY_RELOAD_INTERVAL_SECONDS: '0',
     ...env,
   });
   const pool = createPool(config.databaseUrl, schema);
   await migrate(pool);
+  await ensureDefaultGroups(pool, config.defaultGroups);
   await ensureSigningKey(pool, config.keyEncryptionSecret);
 
   /** @type {{ to: string, code: string, link: string, locale: string, text?: string }[]} */
@@ -107,22 +110,25 @@ export async function startTunnus({ schema, env = {}, clients }) {
     },
   };
 
-  const { app } = await createApp({
-    config,
-    pool,
-    clients: clients ?? [
-      {
-        client_id: 'rp',
-        client_secret: 'rp-secret',
-        redirect_uris: [REDIRECT],
-        post_logout_redirect_uris: [POST_LOGOUT],
-        token_endpoint_auth_method: 'client_secret_post',
-        first_party: true,
-        always_include_groups: true,
-      },
-    ],
-    mailer: capturing,
-  });
+  const { app, holder } = await createApp(
+    {
+      config,
+      pool,
+      clients: clients ?? [
+        {
+          client_id: 'rp',
+          client_secret: 'rp-secret',
+          redirect_uris: [REDIRECT],
+          post_logout_redirect_uris: [POST_LOGOUT],
+          token_endpoint_auth_method: 'client_secret_post',
+          first_party: true,
+          always_include_groups: true,
+        },
+      ],
+      mailer: capturing,
+    },
+    { validateResponses: true },
+  );
   server.on('request', app);
 
   const rp = await client.discovery(
@@ -182,6 +188,7 @@ export async function startTunnus({ schema, env = {}, clients }) {
     interactionPath,
     exchange,
     async close() {
+      holder.stop();
       await new Promise((r) => server.close(r));
       await pool.end();
     },
