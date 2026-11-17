@@ -132,3 +132,21 @@ Design: [`production.md`](production.md).
 - [ ] Self-service email change with verification of the new address
 - [ ] Back-channel logout to clients
 - [ ] User export for data-subject access requests
+
+## Review follow-ups (2026-11-17)
+
+From [`reviews/2026-11-17-code-review.md`](reviews/2026-11-17-code-review.md). IDs refer to that file.
+
+- [ ] H1 `TRUST_PROXY=1` must become a number (rate limits and audit IPs are wrong behind a proxy)
+- [ ] M1 Refuse `MAIL_PROVIDER=console` in production
+- [ ] M2 Validate secrets (length, placeholders); derive a subkey per purpose
+- [ ] M3 Cache the derived key; no `scryptSync` per encrypt/decrypt
+- [ ] M4 `pool.on('error')`, pool and statement timeouts
+- [ ] M5 Advisory lock around migrations
+- [ ] M6 Sign-in limits: per-IP interaction limit, reserve for existing users, atomic count
+- [ ] M7 Do not await mail send in `/email` (timing oracle)
+- [ ] M8 Timeouts for Brevo and SMTP sends
+- [ ] M9 Audit `err.name`, not `String(err)`, for mail errors
+- [ ] M10 Request logging, error middleware, branded error page
+- [ ] L1 to L14 Low items: triage when the above are done
+- [ ] Run the OpenID conformance suite after H1 to M10 are fixed
