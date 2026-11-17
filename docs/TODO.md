@@ -104,6 +104,8 @@ Goal: a real relying party signs in through Tunnus and receives `groups`.
 
 ## Phase 5: Production readiness
 
+Design: [`production.md`](production.md).
+
 - [ ] Multi-stage Dockerfile, non-root user, `HEALTHCHECK`
 - [ ] `<issuer>/health` with database and key status
 - [ ] Prometheus `/metrics` behind `METRICS_BEARER_TOKEN`: sign-ins,
