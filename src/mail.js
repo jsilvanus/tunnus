@@ -4,7 +4,10 @@ import { t } from './i18n.js';
 /**
  * @typedef {{ to: string, subject: string, text: string }} Message
  * @typedef {{ send(message: Message): Promise<void> }} Transport
- * @typedef {{ sendCode(to: string, code: string, link: string, locale: import('./i18n.js').Locale): Promise<void> }} Mailer
+ * @typedef {{
+ *   sendCode(to: string, code: string, link: string, locale: import('./i18n.js').Locale): Promise<void>,
+ *   sendInactiveWarning(to: string, deleteOn: Date, locale: import('./i18n.js').Locale): Promise<void>,
+ * }} Mailer
  */
 
 /**
@@ -17,19 +20,47 @@ export function parseFrom(from) {
 }
 
 /**
- * Build the sign-in mail (subject, text) for a locale, with a controller footer.
+ * Footer shared by all mails: the controller (when configured) and a link to the privacy notice.
+ * @param {import('./config.js').Config} config
+ * @param {import('./i18n.js').Locale} locale
+ */
+function mailFooter(config, locale) {
+  const privacyUrl = config.brand.privacyNoticeUrl || `${config.issuer}/privacy`;
+  const lines = [];
+  if (config.controller.name) {
+    const contact = config.controller.contact ? ` (${config.controller.contact})` : '';
+    lines.push(`${t(locale, 'mail_controller', { controller: config.controller.name })}${contact}`);
+  }
+  lines.push(t(locale, 'mail_privacy_link', { url: privacyUrl }));
+  return `\n\n-- \n${lines.join('\n')}`;
+}
+
+/**
+ * Build the sign-in mail (subject, text) for a locale, with the mail footer.
  * @param {import('./config.js').Config} config
  * @param {string} code
  * @param {string} link
  * @param {import('./i18n.js').Locale} locale
  */
 export function buildCodeMail(config, code, link, locale) {
-  const footer = config.controller.name
-    ? `\n\n-- \n${t(locale, 'mail_controller', { controller: config.controller.name })}${config.controller.contact ? ` (${config.controller.contact})` : ''}`
-    : '';
   return {
     subject: t(locale, 'mail_subject', { code }),
-    text: t(locale, 'mail_body', { code, link }) + footer,
+    text: t(locale, 'mail_body', { code, link }) + mailFooter(config, locale),
+  };
+}
+
+/**
+ * Build the inactivity warning (subject, text). The deletion date is written as YYYY-MM-DD in UTC.
+ * @param {import('./config.js').Config} config
+ * @param {import('./i18n.js').Locale} locale
+ * @param {Date} deleteOn
+ */
+export function buildInactiveWarningMail(config, locale, deleteOn) {
+  const brand = config.brand.name;
+  const date = deleteOn.toISOString().slice(0, 10);
+  return {
+    subject: t(locale, 'mail_inactive_subject', { brand }),
+    text: t(locale, 'mail_inactive_body', { brand, date }) + mailFooter(config, locale),
   };
 }
 
@@ -42,6 +73,9 @@ export function createMailer(config, transport) {
   return {
     async sendCode(to, code, link, locale) {
       await transport.send({ to, ...buildCodeMail(config, code, link, locale) });
+    },
+    async sendInactiveWarning(to, deleteOn, locale) {
+      await transport.send({ to, ...buildInactiveWarningMail(config, locale, deleteOn) });
     },
   };
 }

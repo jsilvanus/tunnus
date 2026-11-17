@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.js';
-import { buildCodeMail, createBrevoTransport, parseFrom } from '../src/mail.js';
+import {
+  buildCodeMail,
+  buildInactiveWarningMail,
+  createBrevoTransport,
+  createMailer,
+  parseFrom,
+} from '../src/mail.js';
 
 const config = loadConfig({
   ISSUER: 'https://id.example.org',
@@ -28,6 +34,64 @@ describe('mail', () => {
     expect(fi.subject).toBe('Kirjautumiskoodisi: 123456');
     expect(fi.text).toContain('https://id.example.org/l');
     expect(fi.text).toContain('Rekisterinpitäjä: Example Organisation (privacy@example.org)');
+  });
+
+  it('ends the sign-in mail with a link to the privacy notice', () => {
+    const en = buildCodeMail(config, '123456', 'https://id.example.org/l', 'en');
+    expect(
+      en.text.endsWith(
+        '\n\n-- \nData controller: Example Organisation (privacy@example.org)\nPrivacy notice: https://id.example.org/privacy',
+      ),
+    ).toBe(true);
+  });
+
+  it('links the privacy notice configured with PRIVACY_NOTICE_URL', () => {
+    const hosted = loadConfig({
+      ISSUER: 'https://id.example.org',
+      DATABASE_URL: 'postgres://x',
+      KEY_ENCRYPTION_SECRET: 's',
+      COOKIE_SECRETS: 'c',
+      PRIVACY_NOTICE_URL: 'https://notice.example.org/tunnus',
+    });
+    const mail = buildCodeMail(hosted, '123456', 'https://id.example.org/l', 'sv');
+    expect(mail.text).toContain('Integritetspolicy: https://notice.example.org/tunnus');
+    expect(mail.text).not.toContain('Data controller');
+    expect(mail.text).not.toContain('https://id.example.org/privacy');
+  });
+
+  it('builds the inactivity warning in three locales with the deletion date, footer and privacy link', () => {
+    const deleteOn = new Date('2026-12-17T10:00:00Z');
+    const fi = buildInactiveWarningMail(config, 'fi', deleteOn);
+    expect(fi.subject).toBe('Tunnus-tilisi poistetaan');
+    expect(fi.text).toContain('Tili poistetaan 2026-12-17, ellei');
+    expect(fi.text).toContain('Rekisterinpitäjä: Example Organisation (privacy@example.org)');
+    expect(fi.text).toContain('Tietosuojaseloste: https://id.example.org/privacy');
+
+    const sv = buildInactiveWarningMail(config, 'sv', deleteOn);
+    expect(sv.subject).toBe('Ditt Tunnus-konto raderas');
+    expect(sv.text).toContain('Det raderas den 2026-12-17 om');
+
+    const en = buildInactiveWarningMail(config, 'en', deleteOn);
+    expect(en.subject).toBe('Your Tunnus account will be deleted');
+    expect(en.text).toContain('It will be deleted on 2026-12-17 unless you sign in');
+    expect(en.text).toContain('Privacy notice: https://id.example.org/privacy');
+  });
+
+  it('formats the deletion date in UTC, whatever the time of day', () => {
+    const late = buildInactiveWarningMail(config, 'en', new Date('2026-01-31T23:59:59Z'));
+    expect(late.text).toContain('deleted on 2026-01-31 unless');
+  });
+
+  it('sends the inactivity warning through the transport', async () => {
+    /** @type {any[]} */ const sent = [];
+    const mailer = createMailer(config, { send: async (m) => void sent.push(m) });
+    await mailer.sendInactiveWarning('user@example.org', new Date('2026-12-17T00:00:00Z'), 'en');
+    expect(sent).toEqual([
+      {
+        to: 'user@example.org',
+        ...buildInactiveWarningMail(config, 'en', new Date('2026-12-17T00:00:00Z')),
+      },
+    ]);
   });
 
   it('posts to the Brevo API', async () => {

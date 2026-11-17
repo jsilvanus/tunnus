@@ -23,6 +23,17 @@ Every setting is an environment variable; see [`.env.example`](.env.example).
 Nothing deployment-specific (domains, groups, clients, branding, controller
 details) is built into the code.
 
+Running Tunnus in production (image, database, reverse proxy, keys, cleanup,
+backups) is described in [`docs/deployment.md`](docs/deployment.md).
+
+Operational endpoints under the issuer path:
+
+- `GET <issuer>/health`: database and signing-key status, no authentication.
+- `GET <issuer>/metrics`: Prometheus metrics, only when `METRICS_BEARER_TOKEN`
+  is set; requires `Authorization: Bearer <token>`.
+- `GET <issuer>/privacy`: the privacy notice, built from the controller and
+  processor settings (or a redirect to `PRIVACY_NOTICE_URL`).
+
 ## Administration
 
 The first admin is created inside the container. The command runs migrations,

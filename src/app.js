@@ -3,6 +3,10 @@ import { createInteractionRouter } from './web/interactions.js';
 import { createProviderHolder } from './oidc/providerHolder.js';
 import { securityHeaders } from './web/security.js';
 import { createAdminRouter } from './admin/router.js';
+import { createHealthRouter, PACKAGE_VERSION } from './health.js';
+import { createPrivacyRouter } from './web/privacy.js';
+import { createMetrics } from './metrics.js';
+import { setAuditMetrics } from './audit.js';
 
 /**
  * Build the Express app. Everything is mounted under the issuer's path so a
@@ -13,12 +17,17 @@ import { createAdminRouter } from './admin/router.js';
 export async function createApp({ config, pool, clients, mailer }, options = {}) {
   const validateResponses = options.validateResponses ?? config.adminValidateResponses;
   const holder = await createProviderHolder({ config, pool, clients });
+  const metrics = createMetrics();
+  setAuditMetrics(metrics);
   const app = express();
   app.set('trust proxy', config.trustProxy);
   app.disable('x-powered-by');
 
   const router = express.Router();
   router.use(securityHeaders(config));
+  router.use(createHealthRouter({ pool, version: PACKAGE_VERSION }));
+  router.use(metrics.router({ pool, token: config.metricsBearerToken }));
+  router.use(createPrivacyRouter({ config }));
   router.use(createInteractionRouter({ config, pool, getProvider: () => holder.current, mailer }));
   router.use(
     '/admin/api/v1',
@@ -37,5 +46,5 @@ export async function createApp({ config, pool, clients, mailer }, options = {})
     callback(req, res, next);
   });
   app.use(config.basePath || '/', router);
-  return { app, provider: holder.current, holder };
+  return { app, provider: holder.current, holder, metrics };
 }

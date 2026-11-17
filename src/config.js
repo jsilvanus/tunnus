@@ -40,10 +40,62 @@ export function loadRetentionConfig(env = process.env) {
 }
 
 /**
+ * @typedef {{ name: string, purpose: string, location: string }} Processor
+ */
+
+/**
+ * Read the processors of the privacy notice from PROCESSORS (inline JSON) or
+ * PROCESSORS_FILE (path to a JSON file). Setting both is an error.
+ * @param {NodeJS.ProcessEnv} env
+ * @param {(path: string, encoding: 'utf8') => string} readFile
+ * @returns {Processor[]}
+ */
+export function parseProcessors(env, readFile) {
+  const inline = (env.PROCESSORS ?? '').trim();
+  const file = (env.PROCESSORS_FILE ?? '').trim();
+  if (inline && file) throw new Error('Set PROCESSORS or PROCESSORS_FILE, not both');
+  if (!inline && !file) return [];
+
+  let text = inline;
+  let source = 'PROCESSORS';
+  if (file) {
+    source = 'PROCESSORS_FILE';
+    try {
+      text = readFile(file, 'utf8');
+    } catch {
+      throw new Error('PROCESSORS_FILE could not be read');
+    }
+  }
+
+  /** @type {unknown} */
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`${source} must be valid JSON`);
+  }
+  if (!Array.isArray(data)) throw new Error(`${source} must be a JSON array`);
+
+  return data.map((/** @type {any} */ item, i) => {
+    const fields = /** @type {const} */ (['name', 'purpose', 'location']);
+    const ok =
+      item !== null &&
+      typeof item === 'object' &&
+      fields.every((k) => typeof item[k] === 'string' && item[k].trim() !== '');
+    if (!ok)
+      throw new Error(`${source} item ${i} must have non-empty string name, purpose and location`);
+    return { name: item.name.trim(), purpose: item.purpose.trim(), location: item.location.trim() };
+  });
+}
+
+/**
  * Load and validate the whole configuration from the environment.
  * @param {NodeJS.ProcessEnv} [env]
+ * @param {{ readFile?: (path: string, encoding: 'utf8') => string }} [io] injectable file reader
  */
-export function loadConfig(env = process.env) {
+export function loadConfig(env = process.env, io = {}) {
+  const readFile =
+    io.readFile ?? ((/** @type {string} */ p, /** @type {'utf8'} */ enc) => readFileSync(p, enc));
   const missing = ['ISSUER', 'DATABASE_URL', 'KEY_ENCRYPTION_SECRET', 'COOKIE_SECRETS'].filter(
     (k) => !env[k],
   );
@@ -63,6 +115,9 @@ export function loadConfig(env = process.env) {
     throw new Error('BREVO_API_KEY is required for brevo');
   if (!['fi', 'sv', 'en'].includes(env.DEFAULT_LOCALE ?? 'en'))
     throw new Error('DEFAULT_LOCALE must be fi, sv or en');
+
+  const intervalHours = int(env, 'CLEANUP_INTERVAL_HOURS', 24);
+  if (intervalHours < 1) throw new Error('CLEANUP_INTERVAL_HOURS must be at least 1');
 
   const trustProxy = env.TRUST_PROXY ?? 'false';
   return {
@@ -102,6 +157,16 @@ export function loadConfig(env = process.env) {
     keyRetiredGraceDays: int(env, 'KEY_RETIRED_GRACE_DAYS', 7),
     keyReloadIntervalSeconds: int(env, 'KEY_RELOAD_INTERVAL_SECONDS', 60),
     adminValidateResponses: env.ADMIN_VALIDATE_RESPONSES === 'true',
+    metricsBearerToken: env.METRICS_BEARER_TOKEN ?? '',
+    privacy: {
+      dpoContact: env.DPO_CONTACT ?? '',
+      processors: parseProcessors(env, readFile),
+    },
+    cleanup: {
+      disabled: env.CLEANUP_DISABLED === 'true',
+      startDelaySeconds: int(env, 'CLEANUP_START_DELAY_SECONDS', 60),
+      intervalHours,
+    },
   };
 }
 
