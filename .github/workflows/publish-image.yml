@@ -54,7 +54,7 @@ jobs:
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
             type=raw,value=latest,enable=${{ inputs.latest == true || (github.ref_type == 'tag' && !contains(github.ref_name, '-')) }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           push: true
