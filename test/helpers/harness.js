@@ -1,5 +1,6 @@
 import http from 'node:http';
 import * as client from 'openid-client';
+import { expect, vi } from 'vitest';
 import pg from 'pg';
 import { createApp } from '../../src/app.js';
 import { loadConfig } from '../../src/config.js';
@@ -198,3 +199,36 @@ export async function startTunnus({ schema, env = {}, clients, transport }) {
     },
   };
 }
+
+/**
+ * Sign an address in or up on an interaction page, through the code and, for a new address, the
+ * name step. A consent page that follows (offline_access) is accepted. Returns the last response;
+ * its finalUrl is the relying party's callback when the sign-in succeeded.
+ * @param {Awaited<ReturnType<typeof startTunnus>>} t
+ * @param {ReturnType<typeof browser>} b
+ * @param {string} path the `/interaction/<uid>` path
+ * @param {string} email
+ * @param {string} [name]
+ */
+export async function signInThrough(t, b, path, email, name = 'Test Person') {
+  const before = t.mails.length;
+  await b.post(`${t.origin}${path}/email`, { email });
+  await waitForMail(t, before + 1);
+  let done = await b.post(`${t.origin}${path}/code`, {
+    code: /** @type {any} */ (t.mails.at(-1)).code,
+  });
+  if (!done.finalUrl.startsWith(REDIRECT)) done = await b.post(`${t.origin}${path}/name`, { name });
+  if (!done.finalUrl.startsWith(REDIRECT) && done.body.includes('/confirm"')) {
+    const next = /** @type {string} */ (t.interactionPath(done.body));
+    done = await b.post(`${t.origin}${next}/confirm`, {});
+  }
+  return done;
+}
+
+/**
+ * Wait until the harness has recorded at least `count` mails (sending runs in the background).
+ * @param {Awaited<ReturnType<typeof startTunnus>>} t
+ * @param {number} count
+ */
+const waitForMail = (t, count) =>
+  vi.waitFor(() => expect(t.mails.length).toBeGreaterThanOrEqual(count));

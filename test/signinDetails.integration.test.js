@@ -128,9 +128,11 @@ describe('last login bookkeeping', () => {
     );
     const silent = await t.startAuth(b, { prompt: 'none' });
     expect(new URL(silent.page.finalUrl).searchParams.get('code')).toBeTruthy();
-    const row = (await activity(t, email)).rows[0];
-    expect(Date.now() - new Date(row.last_login_at).getTime()).toBeLessThan(60 * 60 * 1000);
-    expect(row.inactive_warned_at).toBeNull();
+    await vi.waitFor(async () => {
+      const row = (await activity(t, email)).rows[0];
+      expect(Date.now() - new Date(row.last_login_at).getTime()).toBeLessThan(60 * 60 * 1000);
+      expect(row.inactive_warned_at).toBeNull();
+    });
   });
 
   it('does not write again within an hour', async () => {
@@ -143,6 +145,8 @@ describe('last login bookkeeping', () => {
     );
     const before = (await activity(t, email)).rows[0];
     await t.startAuth(b, { prompt: 'none' });
+    // A write would come after the response; give it time to land before reading.
+    await new Promise((resolve) => setTimeout(resolve, 100));
     const after = (await activity(t, email)).rows[0];
     expect(new Date(after.last_login_at).getTime()).toBe(new Date(before.last_login_at).getTime());
     expect(after.inactive_warned_at).not.toBeNull();
@@ -169,12 +173,14 @@ describe('last login bookkeeping on refresh tokens', () => {
       [email],
     );
     await client.refreshTokenGrant(r.rp, /** @type {string} */ (tokens.refresh_token));
-    const row = (
-      await r.pool.query('SELECT last_login_at, inactive_warned_at FROM users WHERE email = $1', [
-        email,
-      ])
-    ).rows[0];
-    expect(Date.now() - new Date(row.last_login_at).getTime()).toBeLessThan(60 * 60 * 1000);
-    expect(row.inactive_warned_at).toBeNull();
+    // The bookkeeping runs after the response, so wait for it.
+    await vi.waitFor(async () => {
+      const { rows } = await r.pool.query(
+        'SELECT last_login_at, inactive_warned_at FROM users WHERE email = $1',
+        [email],
+      );
+      expect(Date.now() - new Date(rows[0].last_login_at).getTime()).toBeLessThan(60 * 60 * 1000);
+      expect(rows[0].inactive_warned_at).toBeNull();
+    });
   });
 });

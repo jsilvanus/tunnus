@@ -3,16 +3,19 @@ import { createAdapterClass } from './adapter.js';
 import { createFindAccount } from '../accounts.js';
 import { errorFields, logger } from '../logger.js';
 import { accountIdOf, touchLastLogin } from './loginActivity.js';
+import { pickLocale } from '../i18n.js';
+import { alwaysGroupsOf, scopeWithGroups } from './alwaysGroups.js';
+import { logoutDonePage, logoutPage } from '../web/pages.js';
 
 /**
  * Build the oidc-provider instance.
  * @param {{ config: import('../config.js').Config, pool: import('pg').Pool, clients: Record<string, any>[], jwks: { keys: any[] } }} deps
  */
 export function createProvider({ config, pool, clients, jwks }) {
-  const alwaysGroups = new Set(
-    clients.filter((c) => c.always_include_groups).map((c) => c.client_id),
-  );
+  const alwaysGroups = alwaysGroupsOf(clients);
   const day = 24 * 60 * 60;
+  /** @param {any} ctx */
+  const pageCtx = (ctx) => ({ config, locale: pickLocale(ctx.req, config.defaultLocale) });
 
   // With an existing session, ask the user to confirm the account unless the client passed prompt=none.
   const policy = interactionPolicy.base();
@@ -68,13 +71,39 @@ export function createProvider({ config, pool, clients, jwks }) {
       policy,
       url: (_ctx, interaction) => `${config.basePath}/interaction/${interaction.uid}`,
     },
-    features: { devInteractions: { enabled: false }, rpInitiatedLogout: { enabled: true } },
+    features: {
+      devInteractions: { enabled: false },
+      // Branded pages in place of the library's English pages, which load a web font and so do not
+      // render under the CSP. Both use the same form contract (xsrf field, logout=yes).
+      rpInitiatedLogout: {
+        enabled: true,
+        logoutSource: async (/** @type {any} */ ctx, /** @type {string} */ form) => {
+          ctx.type = 'html';
+          ctx.body = logoutPage(pageCtx(ctx), form);
+        },
+        postLogoutSuccessSource: async (/** @type {any} */ ctx) => {
+          ctx.type = 'html';
+          ctx.body = logoutDonePage(pageCtx(ctx));
+        },
+      },
+      // Clients may revoke their own access and refresh tokens (RFC 7009).
+      revocation: { enabled: true },
+    },
     // First-party clients skip the consent screen.
     loadExistingGrant: async (ctx) => {
       const oidc = /** @type {any} */ (ctx.oidc);
       const client = oidc.client;
       const grantId = oidc.result?.consent?.grantId || oidc.session.grantIdFor(client.clientId);
-      if (grantId) return oidc.provider.Grant.find(grantId);
+      if (grantId) {
+        const grant = await oidc.provider.Grant.find(grantId);
+        // A first-party client was granted its scopes at the first sign-in. A scope it asks for
+        // later is added to that grant, so the consent screen is not shown for it.
+        if (grant && client.first_party && oidc.params.scope) {
+          grant.addOIDCScope(oidc.params.scope);
+          await grant.save();
+        }
+        return grant;
+      }
       if (!client.first_party) return undefined;
       const grant = new oidc.provider.Grant({
         clientId: client.clientId,
@@ -87,16 +116,19 @@ export function createProvider({ config, pool, clients, jwks }) {
   });
 
   // Clients flagged always_include_groups receive the groups claim without asking for the scope.
+  // Only GET /auth reaches the authorization endpoint: POST /auth is off (enableHttpPostMethods is
+  // not set), and pushed requests and request objects are off too. If any of them is enabled, the
+  // scope has to be rewritten there as well (see scopeWithGroups).
   provider.use(async (ctx, next) => {
     if (ctx.oidc?.route === undefined && ctx.path.endsWith('/auth') && ctx.method === 'GET') {
       const params = new URLSearchParams(ctx.querystring);
-      const scope = params.get('scope');
-      if (
-        scope &&
-        alwaysGroups.has(params.get('client_id') ?? '') &&
-        !scope.split(' ').includes('groups')
-      ) {
-        params.set('scope', `${scope} groups`);
+      const scope = scopeWithGroups(
+        params.get('scope') ?? undefined,
+        params.get('client_id') ?? undefined,
+        alwaysGroups,
+      );
+      if (scope !== undefined) {
+        params.set('scope', scope);
         ctx.querystring = params.toString();
       }
     }

@@ -60,6 +60,30 @@ fails the run:
 For a version tag, `tag` is the tag name (`v1.2.3`) and `ref` is `refs/tags/v1.2.3`.
 The receiver decides what to deploy; nothing in this repository names a target.
 
+## Clients
+
+Clients are listed in the JSON file at `CLIENTS_FILE`. Each entry is passed to
+oidc-provider, so the fields are the client metadata of OpenID Connect Dynamic
+Client Registration, plus two Tunnus fields:
+
+- `first_party`: the client skips the consent screen. A scope the client asks for
+  later is added to its existing grant, so it does not show consent either.
+- `always_include_groups`: the `groups` claim is returned without the client asking
+  for the `groups` scope. It works on `GET /auth`, the only authorization method
+  served. Pushed requests and request objects are not enabled; a client that uses
+  them must request `groups` itself.
+
+`grant_types` is the list of grant types the client may use. The default is
+`authorization_code` only. A refresh token needs `refresh_token` in that list:
+without it, a client that asks for `offline_access` gets no refresh token, and
+the scope is not even granted. `clients.example.json` lists both types
+(`["authorization_code", "refresh_token"]`) for that reason. JSON has no comments,
+so the explanation is here.
+
+`offline_access` is also dropped unless the request has `prompt=consent`. This
+is how oidc-provider follows the specification; a client that wants refresh
+tokens must send `prompt=consent` in the authorization request.
+
 ## Sign-in limits
 
 Code issuance is limited per address per hour (`RATE_LIMIT_EMAIL_PER_HOUR`), per

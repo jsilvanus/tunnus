@@ -30,6 +30,12 @@ const messages = {
     error_title: 'Something went wrong',
     error_body:
       'Please try again in a few minutes. If the problem continues, contact the administrator.',
+    logout_title: 'Sign out',
+    logout_question: 'Do you want to sign out?',
+    logout_yes: 'Yes, sign me out',
+    logout_no: 'No, stay signed in',
+    logout_done_title: 'You have signed out',
+    logout_done_body: 'You can close this window.',
     mail_subject: 'Your sign-in code: {code}',
     mail_body:
       'Your sign-in code is {code}. It is valid for 10 minutes.\n\nOr open this link to sign in:\n{link}\n\nIf you did not try to sign in, ignore this message.',
@@ -89,6 +95,12 @@ const messages = {
     link_invalid: 'Linkki ei ole enää voimassa. Aloita kirjautuminen uudelleen.',
     error_title: 'Jotain meni vikaan',
     error_body: 'Yritä uudelleen hetken kuluttua. Jos ongelma jatkuu, ota yhteyttä ylläpitoon.',
+    logout_title: 'Kirjaudu ulos',
+    logout_question: 'Haluatko kirjautua ulos?',
+    logout_yes: 'Kyllä, kirjaudu ulos',
+    logout_no: 'Ei, pysy kirjautuneena',
+    logout_done_title: 'Olet kirjautunut ulos',
+    logout_done_body: 'Voit sulkea tämän ikkunan.',
     mail_subject: 'Kirjautumiskoodisi: {code}',
     mail_body:
       'Kirjautumiskoodisi on {code}. Se on voimassa 10 minuuttia.\n\nVoit myös kirjautua tästä linkistä:\n{link}\n\nJos et yrittänyt kirjautua, voit ohittaa tämän viestin.',
@@ -148,6 +160,12 @@ const messages = {
     link_invalid: 'Länken är inte längre giltig. Börja logga in på nytt.',
     error_title: 'Något gick fel',
     error_body: 'Försök igen om en stund. Om problemet kvarstår, kontakta administratören.',
+    logout_title: 'Logga ut',
+    logout_question: 'Vill du logga ut?',
+    logout_yes: 'Ja, logga ut',
+    logout_no: 'Nej, förbli inloggad',
+    logout_done_title: 'Du har loggat ut',
+    logout_done_body: 'Du kan stänga fönstret.',
     mail_subject: 'Din inloggningskod: {code}',
     mail_body:
       'Din inloggningskod är {code}. Den gäller i 10 minuter.\n\nEller öppna den här länken för att logga in:\n{link}\n\nOm du inte försökte logga in kan du bortse från meddelandet.',
