@@ -27,6 +27,44 @@ export function parseList(v) {
 }
 
 /**
+ * A Brevo template id from an env var: unset or empty gives undefined; otherwise a positive integer.
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string} name
+ * @returns {number | undefined}
+ */
+function templateId(env, name) {
+  const raw = env[name];
+  if (raw === undefined || raw === '') return undefined;
+  const n = Number(raw);
+  if (!/^[1-9]\d*$/.test(raw) || !Number.isSafeInteger(n))
+    throw new Error(`${name} must be a positive integer`);
+  return n;
+}
+
+/**
+ * Brevo template ids per mail kind: BREVO_TEMPLATE_<KIND>_ID is the default and
+ * BREVO_TEMPLATE_<KIND>_ID_FI / _SV / _EN override it for one locale. Read only when
+ * MAIL_PROVIDER=brevo; for any other provider every id is undefined and nothing is checked.
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string} mailProvider
+ */
+export function loadBrevoTemplates(env, mailProvider) {
+  /** @param {'SIGNIN' | 'INACTIVE'} kind */
+  const read = (kind) => {
+    const base = `BREVO_TEMPLATE_${kind}_ID`;
+    if (mailProvider !== 'brevo')
+      return { default: undefined, fi: undefined, sv: undefined, en: undefined };
+    return {
+      default: templateId(env, base),
+      fi: templateId(env, `${base}_FI`),
+      sv: templateId(env, `${base}_SV`),
+      en: templateId(env, `${base}_EN`),
+    };
+  };
+  return { signin: read('SIGNIN'), inactive: read('INACTIVE') };
+}
+
+/**
  * Retention-related settings.
  * @param {NodeJS.ProcessEnv} [env]
  */
@@ -183,6 +221,7 @@ export function loadConfig(env = process.env, io = {}) {
     mailFrom: env.MAIL_FROM ?? 'Tunnus <no-reply@localhost>',
     smtpUrl: env.SMTP_URL ?? '',
     brevoApiKey: env.BREVO_API_KEY ?? '',
+    brevoTemplates: loadBrevoTemplates(env, env.MAIL_PROVIDER ?? 'console'),
     limits: {
       perEmailPerHour: int(env, 'RATE_LIMIT_EMAIL_PER_HOUR', 5),
       perIpPerHour: int(env, 'RATE_LIMIT_IP_PER_HOUR', 20),
