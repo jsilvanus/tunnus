@@ -29,7 +29,7 @@
     "@types/nodemailer": "^8.0.2",
     "@types/oidc-provider": "^9.13.1",
     "@types/pg": "^8.23.1",
-    "eslint": "^10.14.0",
+    "eslint": "^10.15.0",
     "globals": "^17.14.0",
     "openid-client": "^6.8.9",
     "prettier": "^3.9.10",
