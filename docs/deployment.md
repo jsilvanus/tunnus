@@ -116,6 +116,55 @@ Add the new secret at the front of `COOKIE_SECRETS` and keep the old one after
 it. Restart, and once sessions signed with the old secret have expired (after
 `SESSION_TTL_DAYS`, 14 by default), remove it.
 
+### Brevo templates
+
+With `MAIL_PROVIDER=brevo`, the sign-in code mail and the inactivity warning can be
+sent from Brevo templates instead of the built-in text. Without a template id the
+plain text is sent, as before.
+
+| Variable                                      | Notes                                                             |
+| --------------------------------------------- | ----------------------------------------------------------------- |
+| `BREVO_TEMPLATE_SIGNIN_ID`                    | Template id for the sign-in code mail. Default for every locale.  |
+| `BREVO_TEMPLATE_SIGNIN_ID_FI`, `_SV`, `_EN`   | Optional override for one locale.                                 |
+| `BREVO_TEMPLATE_INACTIVE_ID`                  | Template id for the inactivity warning. Default for every locale. |
+| `BREVO_TEMPLATE_INACTIVE_ID_FI`, `_SV`, `_EN` | Optional override for one locale.                                 |
+
+Ids are positive integers; anything else stops start-up. The variables are ignored
+unless `MAIL_PROVIDER=brevo`. For a send, the locale's id is used, else the default,
+else plain text.
+
+Every template receives these parameters, all strings:
+
+- Sign-in code (`BREVO_TEMPLATE_SIGNIN_ID*`): `code`, `link`, `brand_name`,
+  `privacy_url`, `controller_name`, `controller_contact`, `locale`.
+- Inactivity warning (`BREVO_TEMPLATE_INACTIVE_ID*`): `date` (the deletion date,
+  `YYYY-MM-DD`, UTC), `brand_name`, `privacy_url`, `controller_name`,
+  `controller_contact`, `locale`.
+
+`controller_name` and `controller_contact` are empty strings when `CONTROLLER_NAME`
+and `CONTROLLER_CONTACT` are unset. `privacy_url` is `PRIVACY_NOTICE_URL`, or the
+built-in privacy page.
+
+A sign-in template could look like this in Brevo (the subject is set in the template):
+
+```html
+<p>Your sign-in code is <strong>{{ params.code }}</strong>.</p>
+<p>Or open this link on the same device: <a href="{{ params.link }}">sign in</a></p>
+<p>
+  Data controller: {{ params.controller_name }} ({{ params.controller_contact }})<br />
+  <a href="{{ params.privacy_url }}">Privacy notice</a>
+</p>
+```
+
+Fallback rules:
+
+- No template id for the mail kind and locale: plain text is sent.
+- Brevo answers with a 4xx to a template send (the template is missing, inactive or
+  rejected): the same mail is sent once more as plain text, so sign-in is not blocked.
+  A warning is logged with the error name and status only, never the address or the code.
+- A 5xx, a timeout or a network error is not retried as text; the send fails as any
+  other mail error would.
+
 ## Database
 
 Tunnus needs one PostgreSQL 16 database. It can have its own database or use

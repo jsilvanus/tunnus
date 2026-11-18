@@ -1,9 +1,17 @@
 import nodemailer from 'nodemailer';
 import { t } from './i18n.js';
+import { logger as defaultLogger } from './logger.js';
 
 /**
- * @typedef {{ to: string, subject: string, text: string }} Message
+ * A Brevo template to send instead of the text. `params` are passed to the template as strings.
+ * @typedef {{ id: number, params: Record<string, string> }} TemplateRef
+ * @typedef {{ to: string, subject: string, text: string, template?: TemplateRef }} Message
  * @typedef {{ send(message: Message): Promise<void> }} Transport
+ * @typedef {{
+ *   info: (o: object, m: string) => void,
+ *   debug: (o: object, m: string) => void,
+ *   warn: (o: object, m: string) => void,
+ * }} Log
  * @typedef {{
  *   sendCode(to: string, code: string, link: string, locale: import('./i18n.js').Locale): Promise<void>,
  *   sendInactiveWarning(to: string, deleteOn: Date, locale: import('./i18n.js').Locale): Promise<void>,
@@ -20,18 +28,25 @@ export function parseFrom(from) {
 }
 
 /**
+ * The privacy notice link: PRIVACY_NOTICE_URL when set, else the built-in page.
+ * @param {import('./config.js').Config} config
+ */
+function privacyUrl(config) {
+  return config.brand.privacyNoticeUrl || `${config.issuer}/privacy`;
+}
+
+/**
  * Footer shared by all mails: the controller (when configured) and a link to the privacy notice.
  * @param {import('./config.js').Config} config
  * @param {import('./i18n.js').Locale} locale
  */
 function mailFooter(config, locale) {
-  const privacyUrl = config.brand.privacyNoticeUrl || `${config.issuer}/privacy`;
   const lines = [];
   if (config.controller.name) {
     const contact = config.controller.contact ? ` (${config.controller.contact})` : '';
     lines.push(`${t(locale, 'mail_controller', { controller: config.controller.name })}${contact}`);
   }
-  lines.push(t(locale, 'mail_privacy_link', { url: privacyUrl }));
+  lines.push(t(locale, 'mail_privacy_link', { url: privacyUrl(config) }));
   return `\n\n-- \n${lines.join('\n')}`;
 }
 
@@ -65,6 +80,54 @@ export function buildInactiveWarningMail(config, locale, deleteOn) {
 }
 
 /**
+ * Template parameters for the sign-in mail. Every value is a string.
+ * @param {import('./config.js').Config} config
+ * @param {string} code
+ * @param {string} link
+ * @param {import('./i18n.js').Locale} locale
+ * @returns {Record<string, string>}
+ */
+export function buildCodeTemplateParams(config, code, link, locale) {
+  return {
+    code,
+    link,
+    brand_name: config.brand.name,
+    privacy_url: privacyUrl(config),
+    controller_name: config.controller.name,
+    controller_contact: config.controller.contact,
+    locale,
+  };
+}
+
+/**
+ * Template parameters for the inactivity warning. Every value is a string.
+ * @param {import('./config.js').Config} config
+ * @param {import('./i18n.js').Locale} locale
+ * @param {Date} deleteOn
+ * @returns {Record<string, string>}
+ */
+export function buildInactiveTemplateParams(config, locale, deleteOn) {
+  return {
+    date: deleteOn.toISOString().slice(0, 10),
+    brand_name: config.brand.name,
+    privacy_url: privacyUrl(config),
+    controller_name: config.controller.name,
+    controller_contact: config.controller.contact,
+    locale,
+  };
+}
+
+/**
+ * The template for a mail kind and locale: the locale's own id, else the default id, else none.
+ * @param {{ default?: number, fi?: number, sv?: number, en?: number }} ids
+ * @param {import('./i18n.js').Locale} locale
+ * @returns {number | undefined}
+ */
+export function templateIdFor(ids, locale) {
+  return ids[locale] ?? ids.default;
+}
+
+/**
  * @param {import('./config.js').Config} config
  * @param {Transport} transport
  * @returns {Mailer}
@@ -72,17 +135,31 @@ export function buildInactiveWarningMail(config, locale, deleteOn) {
 export function createMailer(config, transport) {
   return {
     async sendCode(to, code, link, locale) {
-      await transport.send({ to, ...buildCodeMail(config, code, link, locale) });
+      /** @type {Message} */
+      const message = { to, ...buildCodeMail(config, code, link, locale) };
+      const id = templateIdFor(config.brevoTemplates.signin, locale);
+      if (id !== undefined)
+        message.template = { id, params: buildCodeTemplateParams(config, code, link, locale) };
+      await transport.send(message);
     },
     async sendInactiveWarning(to, deleteOn, locale) {
-      await transport.send({ to, ...buildInactiveWarningMail(config, locale, deleteOn) });
+      /** @type {Message} */
+      const message = { to, ...buildInactiveWarningMail(config, locale, deleteOn) };
+      const id = templateIdFor(config.brevoTemplates.inactive, locale);
+      if (id !== undefined)
+        message.template = {
+          id,
+          params: buildInactiveTemplateParams(config, locale, deleteOn),
+        };
+      await transport.send(message);
     },
   };
 }
 
 /**
- * Development transport that logs instead of sending.
- * @param {{ info: (o: object, m: string) => void }} logger
+ * Development transport that logs instead of sending. It ignores templates; it only notes which
+ * template id would have been used.
+ * @param {Log} logger
  * @returns {Transport}
  */
 export function createConsoleTransport(logger) {
@@ -92,6 +169,11 @@ export function createConsoleTransport(logger) {
         { to: message.to, subject: message.subject, text: message.text },
         'mail (console provider)',
       );
+      if (message.template)
+        logger.debug(
+          { templateId: message.template.id },
+          'mail template (console provider, unused)',
+        );
     },
   };
 }
@@ -134,38 +216,63 @@ export function createSmtpTransport(smtpUrl, from) {
 
 /**
  * Brevo transactional email API.
+ *
+ * With a `template`, the mail is sent by template id and params (the template holds the subject
+ * and body). If Brevo answers with a 4xx to that (a missing or inactive template, say), the same
+ * mail is sent once more as plain text, and a warning is logged with the error name and status
+ * only. A 5xx, a timeout or a network error is thrown as it is.
  * @param {string} apiKey
  * @param {string} from
  * @param {typeof fetch} [fetchImpl]
+ * @param {Log} [log]
  * @returns {Transport}
  */
-export function createBrevoTransport(apiKey, from, fetchImpl = fetch) {
+export function createBrevoTransport(apiKey, from, fetchImpl = fetch, log = defaultLogger) {
   const sender = parseFrom(from);
+
+  /**
+   * @param {Record<string, unknown>} body
+   */
+  async function post(body) {
+    const res = await fetchImpl('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': apiKey,
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify({ sender, ...body }),
+      signal: AbortSignal.timeout(MAIL_TIMEOUT_MS),
+    });
+    if (!res.ok)
+      throw Object.assign(new Error(`Brevo responded ${res.status}`), { status: res.status });
+  }
+
   return {
     async send(message) {
-      const res = await fetchImpl('https://api.brevo.com/v3/smtp/email', {
-        method: 'POST',
-        headers: {
-          'api-key': apiKey,
-          'content-type': 'application/json',
-          accept: 'application/json',
-        },
-        body: JSON.stringify({
-          sender,
-          to: [{ email: message.to }],
-          subject: message.subject,
-          textContent: message.text,
-        }),
-        signal: AbortSignal.timeout(MAIL_TIMEOUT_MS),
-      });
-      if (!res.ok) throw new Error(`Brevo responded ${res.status}`);
+      const to = [{ email: message.to }];
+      if (!message.template) {
+        await post({ to, subject: message.subject, textContent: message.text });
+        return;
+      }
+      try {
+        await post({ to, templateId: message.template.id, params: message.template.params });
+      } catch (err) {
+        const status = /** @type {{ status?: unknown }} */ (err).status;
+        if (typeof status !== 'number' || status < 400 || status >= 500) throw err;
+        log.warn(
+          { error: /** @type {Error} */ (err).name, status },
+          'Brevo template rejected; sending plain text instead',
+        );
+        await post({ to, subject: message.subject, textContent: message.text });
+      }
     },
   };
 }
 
 /**
  * @param {import('./config.js').Config} config
- * @param {{ info: (o: object, m: string) => void }} logger
+ * @param {Log} logger
  * @returns {Mailer}
  */
 export function createMailerFromConfig(config, logger) {
@@ -173,7 +280,7 @@ export function createMailerFromConfig(config, logger) {
     config.mailProvider === 'smtp'
       ? createSmtpTransport(config.smtpUrl, config.mailFrom)
       : config.mailProvider === 'brevo'
-        ? createBrevoTransport(config.brevoApiKey, config.mailFrom)
+        ? createBrevoTransport(config.brevoApiKey, config.mailFrom, fetch, logger)
         : createConsoleTransport(logger);
   return createMailer(config, transport);
 }

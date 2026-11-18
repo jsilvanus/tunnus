@@ -120,6 +120,8 @@ Design: [`production.md`](production.md).
 - [x] Image published to GHCR from CI on tags. Note: not yet run
 - [x] Deployment guide: reverse proxy with a path prefix, database,
       backups, key rotation schedule
+- [x] Brevo templates for the sign-in code and the inactivity warning, per
+      locale, with plain text as the fallback (`docs/deployment.md`, "Brevo templates")
 - [x] Privacy notice template and data-retention notes
 - [ ] OpenID conformance suite, basic OP profile, against a test instance
       Note: manual; see docs/conformance.md
