@@ -3,6 +3,8 @@ import { generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadSpec } from '../src/admin/spec.js';
 import { createAdminAuth } from '../src/admin/auth.js';
+import { createAdminRouter } from '../src/admin/router.js';
+import { createLocalAdminFetch } from '../src/app.js';
 import { createMcpHttpApp } from '../src/mcp/http.js';
 import { createMcpJwtVerifier, protectedResourceMetadata, verifyMcpJwt } from '../src/mcp/oauth.js';
 
@@ -242,5 +244,53 @@ describe('createAdminAuth with OAuth JWT', () => {
 
     const disabled = await run(makeAuth({ status: 'disabled', is_admin: true }));
     expect(disabled.status).toBe(401);
+  });
+
+  it('dispatches getMe through createLocalAdminFetch and createAdminRouter with Express res methods', async () => {
+    const adminUser = {
+      id: '352ab752-99a5-48bd-9b7f-3749a19aad7e',
+      email: 'juha.italeino@evl.fi',
+      display_name: 'Juha Italeino',
+      status: 'active',
+      is_admin: true,
+      created_at: new Date('2026-11-20T00:00:00.000Z'),
+      last_login_at: null,
+      last_email_verified_at: null,
+      totp_enabled_at: null,
+      groups: ['admin'],
+    };
+    const adminRouter = createAdminRouter({
+      config: /** @type {any} */ ({ adminValidateResponses: true }),
+      pool: /** @type {any} */ ({
+        query: async (/** @type {string} */ sql) => {
+          if (sql.includes('FROM users')) return { rows: [adminUser] };
+          return { rows: [] };
+        },
+      }),
+      clients: [],
+      reloadKeys: async () => {},
+      validateResponses: true,
+      verifyOAuthToken: async () => ({ ok: true, sub: adminUser.id }),
+    });
+    const localFetch = createLocalAdminFetch(adminRouter, `${ISSUER}/admin/api/v1`);
+    const res = await localFetch(`${ISSUER}/admin/api/v1/me`, {
+      method: 'GET',
+      headers: { authorization: 'Bearer header.payload.sig', accept: 'application/json' },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      user: {
+        id: adminUser.id,
+        email: adminUser.email,
+        display_name: adminUser.display_name,
+        status: 'active',
+        is_admin: true,
+        created_at: '2026-11-20T00:00:00.000Z',
+        last_login_at: null,
+        last_email_verified_at: null,
+        totp_enabled: false,
+        groups: ['admin'],
+      },
+    });
   });
 });

@@ -122,13 +122,17 @@ export async function createApp({ config, pool, clients, mailer }, options = {})
  * @param {string} adminBaseUrl
  * @returns {typeof globalThis.fetch}
  */
-function createLocalAdminFetch(adminRouter, adminBaseUrl) {
+export function createLocalAdminFetch(adminRouter, adminBaseUrl) {
   const basePath = new URL(adminBaseUrl).pathname.replace(/\/+$/, '');
+  const localApp = express();
+  localApp.disable('x-powered-by');
+  localApp.use(adminRouter);
   return async (targetUrl, init = {}) => {
     const parsed = new URL(String(targetUrl));
     const relUrl = parsed.pathname.slice(basePath.length) + parsed.search;
     const bodyBuf = init.body != null ? Buffer.from(String(init.body)) : Buffer.alloc(0);
     const socket = new PassThrough();
+    Object.defineProperty(socket, 'remoteAddress', { value: '127.0.0.1' });
     const req = new http.IncomingMessage(/** @type {any} */ (socket));
     req.method = init.method ?? 'GET';
     req.url = relUrl || '/';
@@ -141,25 +145,34 @@ function createLocalAdminFetch(adminRouter, adminBaseUrl) {
     const res = new http.ServerResponse(req);
     /** @type {Buffer[]} */
     const chunks = [];
-    res.write = (/** @type {any} */ chunk) => {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      return true;
+    const origWrite = res.write.bind(res);
+    const origEnd = res.end.bind(res);
+    res.write = (/** @type {any} */ chunk, /** @type {any} */ ...rest) => {
+      if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+      return origWrite(chunk, ...rest);
     };
-    return await new Promise((resolve, reject) => {
-      res.end = (/** @type {any} */ chunk) => {
-        if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    return await new Promise((resolve) => {
+      res.end = (/** @type {any} */ chunk, /** @type {any} */ ...rest) => {
+        if (chunk && typeof chunk !== 'function') {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+        }
+        origEnd(chunk, ...rest);
         const text = Buffer.concat(chunks).toString('utf8');
+        const rawHeaders = res.getHeaders();
+        /** @type {Record<string, string>} */
+        const headers = {};
+        for (const [k, v] of Object.entries(rawHeaders)) {
+          if (v !== undefined) headers[k] = Array.isArray(v) ? v.join(', ') : String(v);
+        }
         resolve(
           new Response(res.statusCode === 204 ? null : text, {
             status: res.statusCode,
-            headers: /** @type {any} */ (res.getHeaders()),
+            headers,
           }),
         );
         return res;
       };
-      adminRouter(/** @type {any} */ (req), /** @type {any} */ (res), (/** @type {any} */ err) =>
-        err ? reject(err) : resolve(new Response(null, { status: 404 })),
-      );
+      localApp(/** @type {any} */ (req), /** @type {any} */ (res));
       if (bodyBuf.length) req.push(bodyBuf);
       req.push(null);
     });
