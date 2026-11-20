@@ -22,7 +22,9 @@ export function layout({ config, locale }, title, body) {
 <title>${esc(title)} · ${esc(brand.name)}</title>
 <style>body{font:16px system-ui,sans-serif;max-width:24rem;margin:3rem auto;padding:0 1rem}
 button{background:${esc(brand.color)};color:#fff;border:0;padding:.6rem 1rem;border-radius:.3rem;font:inherit;cursor:pointer}
+button.alt{background:#475569;color:#fff}
 button.secondary{background:none;color:inherit;text-decoration:underline;padding-left:0}
+.actions form+form{margin-top:.6rem}
 input{font:inherit;padding:.5rem;width:100%;box-sizing:border-box;margin:.4rem 0 1rem}.err{color:#b00020}
 .code{font-size:2rem;letter-spacing:.3rem;font-weight:600}
 table{border-collapse:collapse;width:100%}th,td{text-align:left;vertical-align:top;padding:.3rem .4rem;border-bottom:1px solid #ddd;overflow-wrap:anywhere}
@@ -75,16 +77,22 @@ ${errorLine(error ?? '', ctx)}<button>${esc(t(locale, 'continue'))}</button></fo
 /**
  * "Continue as" page shown when a Tunnus session already exists.
  * @param {Ctx} ctx
- * @param {{ continueAction: string, otherAction: string, name: string, email: string }} p
+ * @param {{ continueAction: string, otherAction: string, logoutAction?: string, name: string, email: string }} p
  */
 export function continuePage(ctx, p) {
   const { locale } = ctx;
+  const displayName = p.name || p.email;
+  const logoutForm = p.logoutAction
+    ? `\n<form method="post" action="${esc(p.logoutAction)}"><button class="secondary">${esc(t(locale, 'logout_title'))}</button></form>`
+    : '';
   return layout(
     ctx,
     t(locale, 'signin'),
-    `<form method="post" action="${esc(p.continueAction)}">
-<p>${esc(p.email)}</p><button>${esc(t(locale, 'continue_as', { name: p.name }))}</button></form>
-<form method="post" action="${esc(p.otherAction)}"><button class="secondary">${esc(t(locale, 'other_account'))}</button></form>`,
+    `<p>${esc(p.email)}</p>
+<div class="actions">
+<form method="post" action="${esc(p.continueAction)}"><button>${esc(t(locale, 'continue_as', { name: displayName }))}</button></form>
+<form method="post" action="${esc(p.otherAction)}"><button class="alt">${esc(t(locale, 'other_account'))}</button></form>${logoutForm}
+</div>`,
   );
 }
 

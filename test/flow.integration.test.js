@@ -103,12 +103,27 @@ describe('sign-up and token issue', () => {
     expect(forced.page.body).not.toContain('Continue as');
   });
 
-  it('chooses another account from the continue page', async () => {
+  it('chooses another account or signs out from the continue page, removing the session', async () => {
     const { b } = await signInUntilCode('ben.korhonen@example.org');
     const second = await t.startAuth(b);
+    expect(second.page.body).toContain('ben.korhonen@example.org');
     const path = t.interactionPath(second.page.body);
     const other = await b.post(`${t.origin}${path}/other`, {});
     expect(other.body).toContain('name="email"');
+    // Session was cleared when choosing another account, even without completing a new sign-in.
+    const afterOther = await t.startAuth(b);
+    expect(afterOther.page.body).toContain('name="email"');
+    expect(afterOther.page.body).not.toContain('Continue as');
+
+    // Sign in again and test the explicit logout button on the continue page.
+    await signInUntilCode('ben.korhonen@example.org', b);
+    const third = await t.startAuth(b);
+    const logoutPath = t.interactionPath(third.page.body);
+    const loggedOut = await b.post(`${t.origin}${logoutPath}/logout`, {});
+    expect(loggedOut.body).toContain('You have signed out');
+    const afterLogout = await t.startAuth(b);
+    expect(afterLogout.page.body).toContain('name="email"');
+    expect(afterLogout.page.body).not.toContain('Continue as');
   });
 });
 

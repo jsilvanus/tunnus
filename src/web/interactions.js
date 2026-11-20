@@ -14,6 +14,7 @@ import {
   linkCodePage,
   linkConfirmPage,
   linkInvalidPage,
+  logoutDonePage,
   namePage,
 } from './pages.js';
 
@@ -128,7 +129,8 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
             continuePage(ctx, {
               continueAction: `${base(d.uid)}/continue`,
               otherAction: `${base(d.uid)}/other`,
-              name: user.display_name,
+              logoutAction: `${base(d.uid)}/logout`,
+              name: user.display_name || user.email,
               email: user.email,
             }),
           );
@@ -154,10 +156,43 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
     await finishLogin(req, res, user.id, 'signin_continue');
   });
 
+  /**
+   * Remove the active browser session from storage and detach it from the current interaction.
+   * @param {any} d
+   */
+  async function clearBrowserSession(d) {
+    const sessionUid = d?.session?.uid;
+    const sessionCookie = d?.session?.cookie;
+    if (sessionUid || sessionCookie) {
+      await pool.query(
+        "DELETE FROM oidc_payloads WHERE type = 'Session' AND (uid = $1 OR id = $2)",
+        [sessionUid ?? '', sessionCookie ?? ''],
+      );
+    }
+    if (d?.uid) {
+      await pool.query(
+        "UPDATE oidc_payloads SET payload = payload - 'session' WHERE type = 'Interaction' AND (id = $1 OR uid = $1)",
+        [d.uid],
+      );
+    }
+  }
+
   router.post('/interaction/:uid/other', form, async (req, res) => {
     const d = await details(req, res);
     if (!d) return expired(req, res);
+    await clearBrowserSession(d);
     res.send(emailPage(ctxOf(req), `${base(d.uid)}/email`));
+  });
+
+  router.post('/interaction/:uid/logout', form, async (req, res) => {
+    const d = await details(req, res);
+    if (!d) return expired(req, res);
+    await clearBrowserSession(d);
+    await pool.query(
+      "DELETE FROM oidc_payloads WHERE type = 'Interaction' AND (id = $1 OR uid = $1)",
+      [d.uid],
+    );
+    res.send(logoutDonePage(ctxOf(req)));
   });
 
   router.post('/interaction/:uid/email', form, async (req, res) => {
