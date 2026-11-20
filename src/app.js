@@ -50,6 +50,9 @@ export async function createApp({ config, pool, clients, mailer }, options = {})
   router.use(metrics.router({ pool, token: config.metricsBearerToken }));
   router.use(createPrivacyRouter({ config }));
   router.use(createInteractionRouter({ config, pool, getProvider: () => holder.current, mailer }));
+  router.get('/', (_req, res) => {
+    res.redirect(302, `${config.basePath}/account`);
+  });
   router.use(createAccountRouter({ config, pool, getProvider: () => holder.current, mailer }));
   router.use(createMailRelayRouter({ pool, token: config.mailRelayToken, mailer }));
   const verifyOAuthToken = config.mcp?.oauthEnabled
