@@ -104,7 +104,9 @@ describe('sign-up and token issue', () => {
   });
 
   it('chooses another account or signs out from the continue page, removing the session', async () => {
-    const { b } = await signInUntilCode('ben.korhonen@example.org');
+    const first = await signInUntilCode('ben.korhonen@example.org');
+    await first.b.post(`${t.origin}${first.path}/name`, { name: 'Ben Korhonen' });
+    const b = first.b;
     const second = await t.startAuth(b);
     expect(second.page.body).toContain('ben.korhonen@example.org');
     const path = t.interactionPath(second.page.body);
