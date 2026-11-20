@@ -96,6 +96,20 @@ describe('create and read', () => {
     expect(none.body).toEqual({ items: [], next_cursor: null });
   });
 
+  it('filters groups by path prefix on segment boundaries, including Unicode paths', async () => {
+    await makeGroup('parish/riihimäki');
+    await makeGroup('parish/riihimäki/staff');
+    await makeGroup('parish/riihimäki/volunteers');
+    await makeGroup('parish/riihimäkix/staff');
+
+    const res = await t.api('GET', '/groups?prefix=' + encodeURIComponent('parish/riihimäki'));
+    expect(res.body.items.map((/** @type {any} */ g) => g.name)).toEqual([
+      'parish/riihimäki',
+      'parish/riihimäki/staff',
+      'parish/riihimäki/volunteers',
+    ]);
+  });
+
   it('pages through all groups in name order, two at a time', async () => {
     const all = await t.api('GET', '/groups?limit=200');
     const expected = all.body.items.map((/** @type {any} */ g) => g.name);

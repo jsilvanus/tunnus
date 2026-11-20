@@ -209,6 +209,44 @@ describe('list', () => {
     expect(none.body).toEqual({ items: [], next_cursor: null });
   });
 
+  it('filters users by a slash-boundary-aware group path prefix and combines filters', async () => {
+    const root = await t.api('POST', '/groups', { body: { name: 'parish/riihimäki' } });
+    const child = await t.api('POST', '/groups', { body: { name: 'parish/riihimäki/staff' } });
+    const sibling = await t.api('POST', '/groups', { body: { name: 'parish/riihimäkix/staff' } });
+    expect(root.status).toBe(201);
+    expect(child.status).toBe(201);
+    expect(sibling.status).toBe(201);
+
+    const inRoot = await makeUser('prefix.root@example.org');
+    const inChild = await makeUser('prefix.child@example.org');
+    const outside = await makeUser('prefix.outside@example.org');
+    await api('PUT', `/groups/${root.body.id}/members/${inRoot.id}`);
+    await api('PUT', `/groups/${child.body.id}/members/${inChild.id}`);
+    await api('PUT', `/groups/${sibling.body.id}/members/${outside.id}`);
+
+    const prefix = encodeURIComponent('parish/riihimäki');
+    const found = await api('GET', `/users?group_prefix=${prefix}`);
+    expect(found.body.items.map((/** @type {any} */ u) => u.email)).toEqual([
+      'prefix.child@example.org',
+      'prefix.root@example.org',
+    ]);
+
+    const combined = await api(
+      'GET',
+      `/users?group_prefix=${prefix}&email=PREFIX.CHILD%40EXAMPLE.ORG&status=active`,
+    );
+    expect(combined.body.items.map((/** @type {any} */ u) => u.email)).toEqual([
+      'prefix.child@example.org',
+    ]);
+    const exactAndPrefix = await api(
+      'GET',
+      `/users?group_id=${child.body.id}&group_prefix=${prefix}`,
+    );
+    expect(exactAndPrefix.body.items.map((/** @type {any} */ u) => u.email)).toEqual([
+      'prefix.child@example.org',
+    ]);
+  });
+
   it('rejects a cursor it did not issue', async () => {
     expect((await api('GET', '/users?cursor=not-a-cursor')).body.error.code).toBe(
       'invalid_request',

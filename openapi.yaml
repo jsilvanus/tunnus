@@ -140,7 +140,12 @@ paths:
           schema: { type: boolean }
         - name: group_id
           in: query
+          description: Exact group membership
           schema: { type: integer, minimum: 1 }
+        - name: group_prefix
+          in: query
+          description: Membership in the exact group or any descendant group (slash-boundary aware)
+          schema: { $ref: '#/components/schemas/GroupName' }
         - { $ref: '#/components/parameters/Limit' }
         - { $ref: '#/components/parameters/Cursor' }
       responses:
@@ -304,6 +309,10 @@ paths:
         - name: name
           in: query
           description: Exact group name
+          schema: { $ref: '#/components/schemas/GroupName' }
+        - name: prefix
+          in: query
+          description: Exact group path or any descendant path (slash-boundary aware)
           schema: { $ref: '#/components/schemas/GroupName' }
         - { $ref: '#/components/parameters/Limit' }
         - { $ref: '#/components/parameters/Cursor' }
@@ -682,8 +691,8 @@ components:
       type: string
       minLength: 1
       maxLength: 128
-      pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$'
-      description: Letters, digits, `.`, `_`, `-`; `/` separates segments; no leading or trailing slash
+      pattern: '^[\p{L}\p{N}][\p{L}\p{N}._-]*(/[\p{L}\p{N}][\p{L}\p{N}._-]*)*$'
+      description: Unicode letters and digits, `.`, `_`, `-`; `/` separates segments; no leading or trailing slash
 
     User:
       type: object
