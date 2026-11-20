@@ -86,7 +86,8 @@ export function deleteExpiredPayloads(pool, now) {
  * @param {Date} now
  * @returns {Promise<number>}
  */
-export function deleteExpiredCodes(pool, now) {
+export async function deleteExpiredCodes(pool, now) {
+  await pool.query('DELETE FROM login_challenges WHERE expires_at < $1', [now]);
   return inBatches(
     pool,
     `DELETE FROM email_codes WHERE ctid IN (

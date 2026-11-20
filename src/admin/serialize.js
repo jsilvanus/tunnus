@@ -7,7 +7,7 @@
  * Same aggregation as loadUser in accounts.js.
  */
 export const USER_SELECT = `SELECT u.id, u.email, u.display_name, u.status, u.is_admin,
-       u.created_at, u.last_login_at,
+       u.created_at, u.last_login_at, u.last_email_verified_at, u.totp_enabled_at,
        COALESCE(array_agg(g.name ORDER BY g.name) FILTER (WHERE g.name IS NOT NULL), '{}') AS groups
   FROM users u
   LEFT JOIN user_groups ug ON ug.user_id = u.id
@@ -37,6 +37,8 @@ export function userJson(row) {
     is_admin: row.is_admin,
     created_at: iso(row.created_at),
     last_login_at: iso(row.last_login_at),
+    last_email_verified_at: iso(row.last_email_verified_at),
+    totp_enabled: Boolean(row.totp_enabled_at),
     groups: [...row.groups],
   };
 }

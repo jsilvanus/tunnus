@@ -61,16 +61,21 @@ ${errorLine(error ?? '', ctx)}<button>${esc(t(locale, 'send_code'))}</button></f
  * @param {Ctx} ctx
  * @param {string} action
  * @param {string} [error] message key
+ * @param {{ resendAction?: string, messageKey?: string }} [opts]
  */
-export function codePage(ctx, action, error) {
+export function codePage(ctx, action, error, opts = {}) {
   const { locale } = ctx;
+  const message = t(locale, opts.messageKey ?? (opts.resendAction ? 'code_prompt' : 'code_sent'));
+  const resendForm = opts.resendAction
+    ? `\n<form method="post" action="${esc(opts.resendAction)}"><button class="secondary">${esc(t(locale, 'send_email_code'))}</button></form>`
+    : '';
   return layout(
     ctx,
     t(locale, 'code'),
-    `<p>${esc(t(locale, 'code_sent'))}</p>
+    `<p>${esc(message)}</p>
 <form method="post" action="${esc(action)}">
 <label>${esc(t(locale, 'code'))}<input name="code" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required autofocus></label>
-${errorLine(error ?? '', ctx)}<button>${esc(t(locale, 'continue'))}</button></form>`,
+${errorLine(error ?? '', ctx)}<button>${esc(t(locale, 'continue'))}</button></form>${resendForm}`,
   );
 }
 
@@ -206,5 +211,123 @@ export function logoutDonePage(ctx) {
     ctx,
     title,
     `<h2>${esc(title)}</h2><p>${esc(t(ctx.locale, 'logout_done_body'))}</p>`,
+  );
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {string} action
+ * @param {string} [error]
+ */
+export function accountLoginPage(ctx, action, error) {
+  const { locale } = ctx;
+  return layout(
+    ctx,
+    t(locale, 'account_title'),
+    `<h2>${esc(t(locale, 'account_title'))}</h2>
+<p>${esc(t(locale, 'account_signin_help'))}</p>
+<form method="post" action="${esc(action)}">
+<label>${esc(t(locale, 'email'))}<input type="email" name="email" autocomplete="email" required autofocus></label>
+${errorLine(error ?? '', ctx)}<button>${esc(t(locale, 'send_code'))}</button></form>`,
+  );
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {string} action
+ * @param {string} [error]
+ */
+export function accountCodePage(ctx, action, error) {
+  const { locale } = ctx;
+  return layout(
+    ctx,
+    t(locale, 'account_title'),
+    `<h2>${esc(t(locale, 'account_title'))}</h2>
+<p>${esc(t(locale, 'code_sent'))}</p>
+<form method="post" action="${esc(action)}">
+<label>${esc(t(locale, 'code'))}<input name="code" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required autofocus></label>
+${errorLine(error ?? '', ctx)}<button>${esc(t(locale, 'continue'))}</button></form>`,
+  );
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {{
+ *   basePath: string,
+ *   email: string,
+ *   displayName: string,
+ *   groups: string[],
+ *   totpEnabled: boolean,
+ *   freshEmail: boolean,
+ *   csrf: string,
+ * }} p
+ */
+export function accountPage(ctx, p) {
+  const { locale } = ctx;
+  const statusText = p.totpEnabled
+    ? t(locale, 'account_totp_enabled')
+    : t(locale, 'account_totp_disabled');
+  let totpAction;
+  if (!p.freshEmail) {
+    totpAction = `<p>${esc(t(locale, 'account_totp_verify_first'))}</p>
+<form method="post" action="${esc(p.basePath)}/account/verify">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<button>${esc(t(locale, 'send_email_code'))}</button></form>`;
+  } else if (p.totpEnabled) {
+    totpAction = `<form method="post" action="${esc(p.basePath)}/account/totp/disable">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<button class="alt">${esc(t(locale, 'account_totp_disable'))}</button></form>`;
+  } else {
+    totpAction = `<form method="post" action="${esc(p.basePath)}/account/totp/start">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<button>${esc(t(locale, 'account_totp_setup'))}</button></form>`;
+  }
+  const groupsRow = p.groups.length
+    ? `<tr><th>${esc(t(locale, 'account_groups'))}</th><td>${esc(p.groups.join(', '))}</td></tr>`
+    : '';
+  return layout(
+    ctx,
+    t(locale, 'account_title'),
+    `<h2>${esc(t(locale, 'account_title'))}</h2>
+<table>
+<tr><th>${esc(t(locale, 'name'))}</th><td>${esc(p.displayName)}</td></tr>
+<tr><th>${esc(t(locale, 'email'))}</th><td>${esc(p.email)}</td></tr>${groupsRow}
+<tr><th>${esc(t(locale, 'account_totp_title'))}</th><td>${esc(statusText)}</td></tr>
+</table>
+<div class="actions" style="margin-top:1.5rem">
+${totpAction}
+<form method="post" action="${esc(p.basePath)}/account/logout">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<button class="secondary">${esc(t(locale, 'logout_title'))}</button></form>
+</div>`,
+  );
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {{
+ *   action: string,
+ *   cancelHref: string,
+ *   qrUrl: string,
+ *   secret: string,
+ *   csrf: string,
+ *   error?: string,
+ * }} p
+ */
+export function accountTotpSetupPage(ctx, p) {
+  const { locale } = ctx;
+  return layout(
+    ctx,
+    t(locale, 'account_totp_title'),
+    `<h2>${esc(t(locale, 'account_totp_title'))}</h2>
+<p>${esc(t(locale, 'account_totp_scan'))}</p>
+<p><img src="${esc(p.qrUrl)}" alt="QR" width="200" height="200"></p>
+<p><strong>${esc(t(locale, 'account_totp_secret'))}:</strong> <code>${esc(p.secret)}</code></p>
+<p>${esc(t(locale, 'account_totp_confirm'))}</p>
+<form method="post" action="${esc(p.action)}">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<label>${esc(t(locale, 'code'))}<input name="code" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required autofocus></label>
+${errorLine(p.error ?? '', ctx)}<button>${esc(t(locale, 'continue'))}</button></form>
+<p><a href="${esc(p.cancelHref)}">${esc(t(locale, 'account_cancel'))}</a></p>`,
   );
 }

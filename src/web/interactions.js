@@ -7,6 +7,13 @@ import { isValidEmail } from '../emailAddress.js';
 import { createSignupRule } from '../emailRules.js';
 import { pickLocale } from '../i18n.js';
 import {
+  deleteLoginChallenge,
+  getLoginChallenge,
+  isTotpEligible,
+  saveLoginChallenge,
+  verifyUserTotp,
+} from '../totp.js';
+import {
   codePage,
   consentPage,
   continuePage,
@@ -75,12 +82,27 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
    * @param {any} req
    * @param {any} res
    * @param {string} userId
+   * @param {string} [action]
+   * @param {{ emailVerified?: boolean }} [opts]
    */
-  async function finishLogin(req, res, userId, action = 'signin') {
-    await pool.query(
-      'UPDATE users SET last_login_at = now(), inactive_warned_at = NULL WHERE id = $1',
-      [userId],
-    );
+  async function finishLogin(req, res, userId, action = 'signin', opts = {}) {
+    if (opts.emailVerified) {
+      await pool.query(
+        `UPDATE users
+            SET last_login_at = now(),
+                inactive_warned_at = NULL,
+                last_email_verified_at = now(),
+                totp_failed_attempts = 0,
+                totp_locked_until = NULL
+          WHERE id = $1`,
+        [userId],
+      );
+    } else {
+      await pool.query(
+        'UPDATE users SET last_login_at = now(), inactive_warned_at = NULL WHERE id = $1',
+        [userId],
+      );
+    }
     await audit(pool, {
       actorUserId: userId,
       action,
@@ -108,10 +130,44 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
     if (user && user.status === 'active') {
       const verified = await getVerified(pool, uid);
       if (verified) await consume(pool, verified.id);
-      return finishLogin(req, res, user.id);
+      await deleteLoginChallenge(pool, uid);
+      return finishLogin(req, res, user.id, 'signin', { emailVerified: true });
     }
     if (user || !canSignUp(email)) return expired(req, res);
     res.redirect(303, `${base(uid)}/name`);
+  }
+
+  /**
+   * @param {any} req
+   * @param {string} uid
+   * @param {string} email
+   * @param {'login' | 'signup'} purpose
+   * @param {import('../i18n.js').Locale} locale
+   */
+  async function issueAndSendEmailCode(req, uid, email, purpose, locale) {
+    const issued = await issueCode(pool, {
+      secret: config.keyEncryptionSecret,
+      limits: config.limits,
+      email,
+      uid,
+      ip: req.ip ?? null,
+      purpose,
+    });
+    if (issued.ok) {
+      const link = `${config.issuer}/interaction/${uid}/link/${issued.linkToken}`;
+      // Not awaited: the response must not reveal whether a mail was sent.
+      sendInBackground(pool, {
+        ip: req.ip ?? null,
+        kind: 'sign_in_code',
+        send: () => mailer.sendCode(email, issued.code, link, locale),
+      });
+    } else {
+      await audit(pool, {
+        action: 'rate_limited',
+        ip: req.ip,
+        details: { reason: issued.reason },
+      });
+    }
   }
 
   router.get('/interaction/:uid', async (req, res) => {
@@ -205,51 +261,87 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
     if (!isValidEmail(email))
       return void res.send(emailPage(ctx, `${base(d.uid)}/email`, 'invalid_email'));
 
+    await saveLoginChallenge(pool, d.uid, email);
     const user = await findUserByEmail(pool, email);
     const allowed = user ? user.status === 'active' : canSignUp(email);
+    const totpReady =
+      allowed && isTotpEligible(user, { reverifyDays: config.totpEmailReverifyDays });
     // The response is the same whether or not a code is sent, to avoid account enumeration.
-    if (allowed) {
-      const issued = await issueCode(pool, {
-        secret: config.keyEncryptionSecret,
-        limits: config.limits,
-        email,
-        uid: d.uid,
-        ip: req.ip ?? null,
-        purpose: user ? 'login' : 'signup',
-      });
-      if (issued.ok) {
-        const link = `${config.issuer}/interaction/${d.uid}/link/${issued.linkToken}`;
-        // Not awaited: the response must not reveal whether a mail was sent.
-        sendInBackground(pool, {
-          ip: req.ip ?? null,
-          kind: 'sign_in_code',
-          send: () => mailer.sendCode(email, issued.code, link, ctx.locale),
-        });
-      } else {
-        await audit(pool, {
-          action: 'rate_limited',
-          ip: req.ip,
-          details: { reason: issued.reason },
-        });
-      }
+    if (allowed && !totpReady) {
+      await issueAndSendEmailCode(req, d.uid, email, user ? 'login' : 'signup', ctx.locale);
     }
-    res.send(codePage(ctx, `${base(d.uid)}/code`));
+    res.send(
+      codePage(ctx, `${base(d.uid)}/code`, undefined, { resendAction: `${base(d.uid)}/resend` }),
+    );
+  });
+
+  router.post('/interaction/:uid/resend', form, async (req, res) => {
+    const d = await details(req, res);
+    if (!d) return expired(req, res);
+    const email = await getLoginChallenge(pool, d.uid);
+    if (!email) return expired(req, res);
+    const ctx = ctxOf(req);
+    const user = await findUserByEmail(pool, email);
+    const allowed = user ? user.status === 'active' : canSignUp(email);
+    if (allowed) {
+      await issueAndSendEmailCode(req, d.uid, email, user ? 'login' : 'signup', ctx.locale);
+    }
+    res.send(
+      codePage(ctx, `${base(d.uid)}/code`, undefined, {
+        resendAction: `${base(d.uid)}/resend`,
+        messageKey: 'code_sent',
+      }),
+    );
   });
 
   router.post('/interaction/:uid/code', form, async (req, res) => {
     const d = await details(req, res);
     if (!d) return expired(req, res);
-    const result = await verifyCode(
-      pool,
-      config.keyEncryptionSecret,
-      d.uid,
-      String(req.body.code ?? ''),
-    );
-    if (!result.ok) {
-      await audit(pool, { action: 'code_failed', ip: req.ip, details: { locked: result.locked } });
-      return void res.status(400).send(codePage(ctxOf(req), `${base(d.uid)}/code`, 'invalid_code'));
+    const code = String(req.body.code ?? '');
+    const result = await verifyCode(pool, config.keyEncryptionSecret, d.uid, code);
+    if (result.ok) {
+      return void (await afterVerified(req, res, d.uid, result.email));
     }
-    await afterVerified(req, res, d.uid, result.email);
+
+    const challengeEmail = await getLoginChallenge(pool, d.uid);
+    if (challengeEmail) {
+      const totp = await verifyUserTotp(pool, {
+        secret: config.keyEncryptionSecret,
+        email: challengeEmail,
+        code,
+        reverifyDays: config.totpEmailReverifyDays,
+      });
+      if (totp.ok) {
+        await pool.query(
+          'UPDATE email_codes SET consumed_at = now() WHERE interaction_uid = $1 AND consumed_at IS NULL',
+          [d.uid],
+        );
+        await deleteLoginChallenge(pool, d.uid);
+        return void (await finishLogin(req, res, totp.userId, 'signin_totp'));
+      }
+      if (totp.reason !== 'not_eligible') {
+        await audit(pool, {
+          actorUserId: totp.userId,
+          action: totp.locked ? 'totp_locked' : 'totp_failed',
+          targetType: 'user',
+          targetId: totp.userId,
+          ip: req.ip,
+          details: { reason: totp.reason },
+        });
+        return void res.status(400).send(
+          codePage(ctxOf(req), `${base(d.uid)}/code`, 'invalid_code', {
+            resendAction: `${base(d.uid)}/resend`,
+          }),
+        );
+      }
+    }
+
+    await audit(pool, { action: 'code_failed', ip: req.ip, details: { locked: result.locked } });
+    return void res.status(400).send(
+      codePage(ctxOf(req), `${base(d.uid)}/code`, 'invalid_code', {
+        resendAction: `${base(d.uid)}/resend`,
+      }),
+    );
   });
 
   // Mail scanners prefetch links, so GET never signs anyone in.
@@ -307,7 +399,8 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
       throw err;
     }
     await consume(pool, verified.id);
-    await finishLogin(req, res, id, 'signup');
+    await deleteLoginChallenge(pool, d.uid);
+    await finishLogin(req, res, id, 'signup', { emailVerified: true });
   });
 
   router.post('/interaction/:uid/confirm', form, async (req, res) => {

@@ -46,6 +46,8 @@ describe('openapi.yaml and handlers', () => {
       is_admin: false,
       created_at: '2026-11-01T10:00:00.000Z',
       last_login_at: null,
+      last_email_verified_at: null,
+      totp_enabled: false,
       groups: ['all'],
     };
     expect(user(good).ok).toBe(true);

@@ -3,6 +3,7 @@ import {
   deleteUserAccount,
   revokeUserSessions as revokeSessionRows,
 } from '../../accounts.js';
+import { buildOtpAuthUri, encryptTotpSecret, generateTotpSecret } from '../../totp.js';
 import { AdminError } from '../errors.js';
 import { page } from '../paging.js';
 import { userJson, USER_GROUP_BY, USER_SELECT } from '../serialize.js';
@@ -252,5 +253,59 @@ export const handlers = {
       body: { revoked },
       audit: { targetType: 'user', targetId: userId, details: { revoked } },
     };
+  },
+
+  /**
+   * Generate and enable TOTP for a user. Returns the secret and otpauth URI once.
+   * @param {HandlerContext} ctx
+   * @returns {Promise<HandlerResult>}
+   */
+  async enableUserTotp(ctx) {
+    const userId = String(ctx.params.userId);
+    const { rows } = await ctx.pool.query('SELECT id, email FROM users WHERE id = $1', [userId]);
+    const user = rows[0];
+    if (!user) throw notFound('User not found');
+
+    const { base32 } = generateTotpSecret();
+    const secretEnc = encryptTotpSecret(base32, ctx.config.keyEncryptionSecret);
+    await ctx.pool.query(
+      `UPDATE users
+          SET totp_secret_enc = $2,
+              totp_enabled_at = now(),
+              totp_last_step = NULL,
+              totp_failed_attempts = 0,
+              totp_locked_until = NULL
+        WHERE id = $1`,
+      [userId, secretEnc],
+    );
+    const issuer = ctx.config.brand.name || ctx.config.issuer;
+    return {
+      body: {
+        secret: base32,
+        otpauth_uri: buildOtpAuthUri({ secretBase32: base32, email: user.email, issuer }),
+      },
+      audit: { targetType: 'user', targetId: userId },
+    };
+  },
+
+  /**
+   * Disable and clear TOTP for a user.
+   * @param {HandlerContext} ctx
+   * @returns {Promise<HandlerResult>}
+   */
+  async disableUserTotp(ctx) {
+    const userId = String(ctx.params.userId);
+    const { rowCount } = await ctx.pool.query(
+      `UPDATE users
+          SET totp_secret_enc = NULL,
+              totp_enabled_at = NULL,
+              totp_last_step = NULL,
+              totp_failed_attempts = 0,
+              totp_locked_until = NULL
+        WHERE id = $1`,
+      [userId],
+    );
+    if (!rowCount) throw notFound('User not found');
+    return { status: 204, audit: { targetType: 'user', targetId: userId } };
   },
 };

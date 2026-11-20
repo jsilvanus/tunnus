@@ -10,6 +10,9 @@ const messages = {
     send_code: 'Send code',
     invalid_email: 'Enter a valid email address.',
     code_sent: 'If the address can sign in, we have sent a 6-digit code to it.',
+    code_prompt:
+      'Enter the 6-digit code from your authenticator app, or from the email sent to your address.',
+    send_email_code: 'Send email code',
     code: 'Code',
     continue: 'Continue',
     invalid_code: 'That code is not valid.',
@@ -69,6 +72,20 @@ const messages = {
     privacy_rights: 'Your rights',
     privacy_rights_body:
       'You can ask the data controller for access to your data, correction or deletion of it, and restriction of its processing. You can also complain to a data protection supervisory authority.',
+    account_title: 'Account',
+    account_signin_help: 'Sign in with your email address to manage your account.',
+    account_totp_title: 'Authenticator app (TOTP)',
+    account_totp_enabled: 'Enabled',
+    account_totp_disabled: 'Not enabled',
+    account_totp_setup: 'Set up authenticator app',
+    account_totp_disable: 'Disable authenticator app',
+    account_totp_verify_first: 'Verify your email address first to manage your authenticator app.',
+    account_totp_scan:
+      'Scan this QR code with your authenticator app, or enter the secret manually:',
+    account_totp_confirm: 'Enter the 6-digit code from your authenticator app to activate it.',
+    account_totp_secret: 'Secret',
+    account_cancel: 'Cancel',
+    account_groups: 'Groups',
   },
   fi: {
     signin: 'Kirjaudu',
@@ -76,6 +93,9 @@ const messages = {
     send_code: 'Lähetä koodi',
     invalid_email: 'Anna kelvollinen sähköpostiosoite.',
     code_sent: 'Jos osoitteella voi kirjautua, lähetimme siihen 6-numeroisen koodin.',
+    code_prompt:
+      'Syötä 6-numeroinen koodi todennussovelluksestasi tai sähköpostiisi lähetetty koodi.',
+    send_email_code: 'Lähetä koodi sähköpostiin',
     code: 'Koodi',
     continue: 'Jatka',
     invalid_code: 'Koodi ei kelpaa.',
@@ -134,6 +154,20 @@ const messages = {
     privacy_rights: 'Oikeutesi',
     privacy_rights_body:
       'Voit pyytää rekisterinpitäjältä pääsyä tietoihisi, niiden korjaamista tai poistamista sekä käsittelyn rajoittamista. Voit myös tehdä valituksen tietosuojavaltuutetulle.',
+    account_title: 'Tili',
+    account_signin_help: 'Kirjaudu sähköpostiosoitteellasi hallitaksesi tiliäsi.',
+    account_totp_title: 'Todennussovellus (TOTP)',
+    account_totp_enabled: 'Käytössä',
+    account_totp_disabled: 'Ei käytössä',
+    account_totp_setup: 'Ota todennussovellus käyttöön',
+    account_totp_disable: 'Poista todennussovellus käytöstä',
+    account_totp_verify_first:
+      'Vahvista sähköpostiosoitteesi ensin hallitaksesi todennussovellusta.',
+    account_totp_scan: 'Skannaa tämä QR-koodi todennussovelluksellasi tai syötä salaisuus käsin:',
+    account_totp_confirm: 'Syötä 6-numeroinen koodi todennussovelluksestasi aktivoidaksesi sen.',
+    account_totp_secret: 'Salaisuus',
+    account_cancel: 'Peruuta',
+    account_groups: 'Ryhmät',
   },
   sv: {
     signin: 'Logga in',
@@ -141,6 +175,9 @@ const messages = {
     send_code: 'Skicka kod',
     invalid_email: 'Ange en giltig e-postadress.',
     code_sent: 'Om adressen kan logga in har vi skickat en 6-siffrig kod till den.',
+    code_prompt:
+      'Ange den 6-siffriga koden från din autentiseringsapp eller från e-postmeddelandet som skickats till din adress.',
+    send_email_code: 'Skicka kod via e-post',
     code: 'Kod',
     continue: 'Fortsätt',
     invalid_code: 'Koden är inte giltig.',
@@ -199,6 +236,22 @@ const messages = {
     privacy_rights: 'Dina rättigheter',
     privacy_rights_body:
       'Du kan be den personuppgiftsansvarige om tillgång till dina uppgifter, rättelse eller radering av dem och begränsning av behandlingen. Du kan också lämna klagomål till en tillsynsmyndighet för dataskydd.',
+    account_title: 'Konto',
+    account_signin_help: 'Logga in med din e-postadress för att hantera ditt konto.',
+    account_totp_title: 'Autentiseringsapp (TOTP)',
+    account_totp_enabled: 'Aktiverad',
+    account_totp_disabled: 'Inte aktiverad',
+    account_totp_setup: 'Aktivera autentiseringsapp',
+    account_totp_disable: 'Inaktivera autentiseringsapp',
+    account_totp_verify_first:
+      'Verifiera din e-postadress först för att hantera din autentiseringsapp.',
+    account_totp_scan:
+      'Skanna den här QR-koden med din autentiseringsapp eller ange hemligheten manuellt:',
+    account_totp_confirm:
+      'Ange den 6-siffriga koden från din autentiseringsapp för att aktivera den.',
+    account_totp_secret: 'Hemlighet',
+    account_cancel: 'Avbryt',
+    account_groups: 'Grupper',
   },
 };
 

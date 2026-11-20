@@ -22,9 +22,12 @@ export async function loadUser(pool, id) {
  * @param {string} email
  */
 export async function findUserByEmail(pool, email) {
-  const { rows } = await pool.query('SELECT id, status FROM users WHERE email = $1', [
-    email.trim().toLowerCase(),
-  ]);
+  const { rows } = await pool.query(
+    `SELECT id, status, totp_secret_enc, totp_enabled_at, totp_locked_until, last_email_verified_at
+       FROM users
+      WHERE email = $1`,
+    [email.trim().toLowerCase()],
+  );
   return rows[0];
 }
 

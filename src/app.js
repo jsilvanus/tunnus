@@ -3,6 +3,7 @@ import http from 'node:http';
 import { PassThrough } from 'node:stream';
 import express from 'express';
 import { createInteractionRouter } from './web/interactions.js';
+import { createAccountRouter } from './web/account.js';
 import { createProviderHolder } from './oidc/providerHolder.js';
 import { securityHeaders } from './web/security.js';
 import { createAdminRouter } from './admin/router.js';
@@ -49,6 +50,7 @@ export async function createApp({ config, pool, clients, mailer }, options = {})
   router.use(metrics.router({ pool, token: config.metricsBearerToken }));
   router.use(createPrivacyRouter({ config }));
   router.use(createInteractionRouter({ config, pool, getProvider: () => holder.current, mailer }));
+  router.use(createAccountRouter({ config, pool, getProvider: () => holder.current, mailer }));
   router.use(createMailRelayRouter({ pool, token: config.mailRelayToken, mailer }));
   const verifyOAuthToken = config.mcp?.oauthEnabled
     ? createMcpJwtVerifier({

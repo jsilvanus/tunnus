@@ -233,6 +233,7 @@ export function loadConfig(env = process.env, io = {}) {
     signupDeny: env.SIGNUP_EMAIL_DENY ?? '',
     defaultGroups: parseList(env.DEFAULT_GROUPS),
     sessionTtlDays: int(env, 'SESSION_TTL_DAYS', 14),
+    totpEmailReverifyDays: int(env, 'TOTP_EMAIL_REVERIFY_DAYS', 7),
     mailProvider: /** @type {'console' | 'smtp' | 'brevo'} */ (env.MAIL_PROVIDER ?? 'console'),
     mailFrom: env.MAIL_FROM ?? 'Tunnus <no-reply@localhost>',
     smtpUrl: env.SMTP_URL ?? '',
