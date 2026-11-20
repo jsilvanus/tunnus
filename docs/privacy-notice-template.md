@@ -49,7 +49,7 @@ the other data listed above.
 
 | Data                              | Kept for                                                                    | Notes                                                                                          |
 | --------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Account with no sign-in           | 730 days after the last sign-in (or after creation, if you never signed in) | You get an email 30 days before deletion. Signing in at any time keeps the account.            |
+| Account with no sign-in           | 365 days after the last sign-in (or after creation, if you never signed in) | You get an email 30 days before deletion. Signing in at any time keeps the account.            |
 | Administrator accounts            | Not deleted automatically                                                   | Handled by hand                                                                                |
 | Audit log entries                 | 365 days                                                                    |                                                                                                |
 | IP addresses in audit log entries | 30 days                                                                     | Removed from the entry; the rest of the entry is kept until the audit log entry itself expires |

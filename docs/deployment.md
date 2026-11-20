@@ -363,7 +363,7 @@ Inactivity is measured from the last sign-in, or from creation for accounts that
 never signed in. Administrators are never warned or deleted automatically. A
 warning is sent `INACTIVE_USER_WARN_DAYS` (default 30) before deletion, and
 signing in cancels it. Deletion happens after `INACTIVE_USER_DELETE_DAYS`
-(default 730) without a sign-in.
+(default 365) without a sign-in.
 
 Warnings are capped at `MAIL_DAILY_CAP` per run. They are not counted against the
 sign-in code limit, which counts only sign-in codes. Each warning is sent in the

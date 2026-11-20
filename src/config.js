@@ -70,7 +70,7 @@ export function loadBrevoTemplates(env, mailProvider) {
  */
 export function loadRetentionConfig(env = process.env) {
   return {
-    inactiveUserDeleteDays: int(env, 'INACTIVE_USER_DELETE_DAYS', 730),
+    inactiveUserDeleteDays: int(env, 'INACTIVE_USER_DELETE_DAYS', 365),
     inactiveUserWarnDays: int(env, 'INACTIVE_USER_WARN_DAYS', 30),
     auditRetentionDays: int(env, 'AUDIT_RETENTION_DAYS', 365),
     auditIpRetentionDays: int(env, 'AUDIT_IP_RETENTION_DAYS', 30),
@@ -248,6 +248,7 @@ export function loadConfig(env = process.env, io = {}) {
     controller: {
       name: env.CONTROLLER_NAME ?? '',
       contact: env.CONTROLLER_CONTACT ?? '',
+      url: env.CONTROLLER_URL ?? '',
     },
     brand: {
       name: env.BRAND_NAME ?? 'Tunnus',

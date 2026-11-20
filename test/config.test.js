@@ -17,7 +17,7 @@ const MINIMAL = {
 describe('loadRetentionConfig', () => {
   it('uses documented defaults', () => {
     expect(loadRetentionConfig({})).toEqual({
-      inactiveUserDeleteDays: 730,
+      inactiveUserDeleteDays: 365,
       inactiveUserWarnDays: 30,
       auditRetentionDays: 365,
       auditIpRetentionDays: 30,

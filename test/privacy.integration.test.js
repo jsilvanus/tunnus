@@ -29,7 +29,7 @@ describe('GET <issuer>/privacy', () => {
     const body = await res.text();
     expect(body).toContain('Example Organisation');
     expect(body).toContain('privacy@example.org');
-    expect(body).toContain('730');
+    expect(body).toContain('365');
   });
 
   it('follows ?lang= for the page language', async () => {

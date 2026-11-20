@@ -143,9 +143,15 @@ describe('privacy page rendering', () => {
   });
 
   it('shows the DPO section when a DPO contact is configured', () => {
-    const html = render({ DPO_CONTACT: 'dpo@example.org' });
+    const html = render({
+      DPO_CONTACT: 'dpo@example.org',
+      CONTROLLER_URL: 'https://www.riihimaenseurakunta.fi/info-ja-asiointi/tietosuoja',
+    });
     expect(html).toContain(t('en', 'privacy_dpo'));
     expect(html).toContain('dpo@example.org');
+    expect(html).toContain(
+      '<a href="https://www.riihimaenseurakunta.fi/info-ja-asiointi/tietosuoja">https://www.riihimaenseurakunta.fi/info-ja-asiointi/tietosuoja</a>',
+    );
   });
 
   it('renders retention numbers from the settings', () => {

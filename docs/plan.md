@@ -217,7 +217,7 @@ them.
 | `DEFAULT_LOCALE`                                                    | `fi`, `sv` or `en`                                                                                                        |
 | `METRICS_BEARER_TOKEN`                                              | Enables `/metrics`                                                                                                        |
 | `TRUST_PROXY`                                                       | Express proxy trust setting for correct client IPs                                                                        |
-| `INACTIVE_USER_DELETE_DAYS`                                         | Delete accounts with no sign-in for this many days (default 730; `0` disables)                                            |
+| `INACTIVE_USER_DELETE_DAYS`                                         | Delete accounts with no sign-in for this many days (default 365; `0` disables)                                            |
 | `INACTIVE_USER_WARN_DAYS`                                           | Email a warning this many days before deletion (default 30)                                                               |
 | `AUDIT_RETENTION_DAYS`                                              | Delete audit rows after this many days (default 365)                                                                      |
 | `AUDIT_IP_RETENTION_DAYS`                                           | Remove the IP address from audit rows after this many days (default 30)                                                   |
@@ -229,7 +229,7 @@ them.
 Tunnus stores an email address, a display name, group membership, sign-in
 times and audit metadata. Defaults, all configurable:
 
-- **Inactive accounts** are deleted after 730 days without a sign-in
+- **Inactive accounts** are deleted after 365 days without a sign-in
   (`INACTIVE_USER_DELETE_DAYS`). A warning email is sent 30 days before
   (`INACTIVE_USER_WARN_DAYS`); signing in cancels the deletion.
 - **Audit rows** are kept 365 days (`AUDIT_RETENTION_DAYS`). The IP address

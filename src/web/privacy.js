@@ -17,6 +17,9 @@ export function privacyPage(ctx) {
   const controllerLines = [
     controller.name ? `<p>${esc(controller.name)}</p>` : '',
     controller.contact ? `<p>${tr('privacy_contact', { contact: controller.contact })}</p>` : '',
+    controller.url && /^https?:\/\//i.test(controller.url)
+      ? `<p><a href="${esc(controller.url)}">${esc(controller.url)}</a></p>`
+      : '',
   ].join('');
 
   const dpo = privacy.dpoContact

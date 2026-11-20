@@ -132,6 +132,7 @@ Design: [`production.md`](production.md).
 - [ ] Clients managed in the database through the admin API
 - [ ] Passkeys (WebAuthn), once a deployment's domain is final
 - [ ] Self-service email change with verification of the new address
+- [ ] Secondary email address: keep primary `email` as the username/claim, but send sign-in codes (and optionally inactivity warnings) to both primary and secondary addresses
 - [ ] Back-channel logout to clients
 - [ ] User export for data-subject access requests
 

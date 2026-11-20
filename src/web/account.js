@@ -148,19 +148,22 @@ export function createAccountRouter({ config, pool, getProvider, mailer }) {
     const acct = unseal(config.keyEncryptionSecret, 'account-session', cookies[COOKIE_SESSION]);
     let userId = acct?.userId;
     let sid = acct?.sid;
+    /** @type {any} */
+    let oidcSession = null;
 
-    if (!userId) {
-      try {
-        const provider = getProvider();
-        const oidcCtx = provider.createContext(req, res);
-        const session = await provider.Session.get(oidcCtx);
-        if (session?.accountId) {
+    try {
+      const provider = getProvider();
+      const oidcCtx = provider.createContext(req, res);
+      const session = await provider.Session.get(oidcCtx);
+      if (session?.accountId) {
+        oidcSession = session;
+        if (!userId) {
           userId = session.accountId;
           sid = session.uid || session.accountId;
         }
-      } catch {
-        // Ignore missing/invalid OIDC session
       }
+    } catch {
+      // Ignore missing/invalid OIDC session
     }
     if (!userId || !sid) return null;
 
@@ -182,6 +185,7 @@ export function createAccountRouter({ config, pool, getProvider, mailer }) {
     return {
       user,
       sid: String(sid),
+      oidcSession,
       totpEnabled: Boolean(meta.totp_enabled_at),
       freshEmail,
       csrf: csrfToken(config.keyEncryptionSecret, String(sid)),
@@ -512,6 +516,15 @@ export function createAccountRouter({ config, pool, getProvider, mailer }) {
     const acct = await resolveAccount(req, res);
     if (acct && !validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) {
       return void res.redirect(303, `${config.basePath}/account`);
+    }
+    if (acct?.oidcSession) {
+      await pool.query(
+        "DELETE FROM oidc_payloads WHERE type = 'Session' AND (uid = $1 OR id = $2)",
+        [acct.oidcSession.uid ?? '', acct.oidcSession.jti ?? ''],
+      );
+      const oidcPath = config.basePath || '/';
+      res.clearCookie('_session', { httpOnly: true, sameSite: 'lax', secure, path: oidcPath });
+      res.clearCookie('_session.sig', { httpOnly: true, sameSite: 'lax', secure, path: oidcPath });
     }
     clearCookie(res, COOKIE_SESSION);
     clearCookie(res, COOKIE_CHALLENGE);
