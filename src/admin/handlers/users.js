@@ -75,7 +75,7 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async listUsers(ctx) {
-    const { q, email, status, is_admin: isAdmin, group_id: groupId, limit } = ctx.query;
+    const { q, email, status, is_admin: isAdmin, group_id: groupId, group_prefix: groupPrefix, limit } = ctx.query;
     const pattern = q === undefined ? null : `%${escapeLike(q)}%`;
     const after = ctx.query.cursor === undefined ? null : cursorField(ctx.query.cursor, 'email');
     const { rows } = await ctx.pool.query(
@@ -86,16 +86,22 @@ export const handlers = {
           AND ($4::boolean IS NULL OR u.is_admin = $4)
           AND ($5::bigint IS NULL OR EXISTS (
                 SELECT 1 FROM user_groups ug WHERE ug.user_id = u.id AND ug.group_id = $5))
-          AND ($6::text IS NULL OR u.email > $6)
+          AND ($6::text IS NULL OR EXISTS (
+                SELECT 1 FROM user_groups ug
+                JOIN groups g ON g.id = ug.group_id
+                WHERE ug.user_id = u.id
+                  AND (g.name = $6 OR left(g.name, length($6) + 1) = $6 || '/')))
+          AND ($7::text IS NULL OR u.email > $7)
         ${USER_GROUP_BY}
         ORDER BY u.email
-        LIMIT $7`,
+        LIMIT $8`,
       [
         pattern,
         email === undefined ? null : normalizeEmail(email),
         status ?? null,
         isAdmin ?? null,
         groupId ?? null,
+        groupPrefix ?? null,
         after,
         limit + 1,
       ],
