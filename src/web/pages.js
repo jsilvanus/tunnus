@@ -29,7 +29,7 @@ input{font:inherit;padding:.5rem;width:100%;box-sizing:border-box;margin:.4rem 0
 .code{font-size:2rem;letter-spacing:.3rem;font-weight:600}
 table{border-collapse:collapse;width:100%}th,td{text-align:left;vertical-align:top;padding:.3rem .4rem;border-bottom:1px solid #ddd;overflow-wrap:anywhere}
 footer{margin-top:3rem;font-size:.875rem}footer a{color:inherit}</style>
-</head><body>${brand.logoUrl ? `<img src="${esc(brand.logoUrl)}" alt="" height="40">` : ''}
+</head><body>${brand.logoUrl ? `<img src="${esc(brand.logoUrl)}" alt="" height="56">` : ''}
 <h1>${esc(brand.name)}</h1>${body}
 <footer><p><a href="${esc(privacyUrl)}">${esc(t(locale, 'footer_privacy'))}</a></p></footer>
 </body></html>`;

@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 import express from 'express';
 import { createInteractionRouter } from './web/interactions.js';
 import { createProviderHolder } from './oidc/providerHolder.js';
@@ -30,6 +31,14 @@ export async function createApp({ config, pool, clients, mailer }, options = {})
 
   const router = express.Router();
   router.use(securityHeaders(config));
+  const logoFile = process.env.BRAND_LOGO_FILE || '/app/logo.png';
+  const logoBytes = existsSync(logoFile) ? readFileSync(logoFile) : null;
+  if (logoBytes) {
+    router.get('/logo.png', (_req, res) => {
+      res.set('Cache-Control', 'public, max-age=86400');
+      res.type('image/png').send(logoBytes);
+    });
+  }
   router.use(createHealthRouter({ pool, version: PACKAGE_VERSION }));
   router.use(metrics.router({ pool, token: config.metricsBearerToken }));
   router.use(createPrivacyRouter({ config }));
