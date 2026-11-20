@@ -795,7 +795,7 @@ components:
 
     Me:
       type: object
-      required: [user, token]
+      required: [user]
       additionalProperties: false
       properties:
         user: { $ref: '#/components/schemas/User' }

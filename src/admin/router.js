@@ -18,6 +18,7 @@ const INTERNAL = errorBody('internal', 'Internal error');
  *   clients: Record<string, any>[],
  *   reloadKeys: () => Promise<void>,
  *   validateResponses?: boolean,
+ *   verifyOAuthToken?: (token: string) => Promise<{ ok: true, sub: string } | { ok: false, reason: string }>,
  * }} deps
  * @returns {express.Router}
  */
@@ -27,6 +28,7 @@ export function createAdminRouter({
   clients,
   reloadKeys,
   validateResponses = config.adminValidateResponses,
+  verifyOAuthToken,
 }) {
   const specText = readSpecText();
   const spec = loadSpec(specText);
@@ -209,7 +211,7 @@ export function createAdminRouter({
     res.type('application/yaml').send(specText);
   });
   router.use(jsonBody);
-  router.use(createAdminAuth({ pool }));
+  router.use(createAdminAuth({ pool, verifyOAuthToken }));
 
   for (const op of operations) {
     // Express has no per-operation method table here, so each route checks its method.

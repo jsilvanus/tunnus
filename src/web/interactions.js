@@ -320,6 +320,13 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
     if (prompt.details.missingOIDCScope)
       grant.addOIDCScope(prompt.details.missingOIDCScope.join(' '));
     if (prompt.details.missingOIDCClaims) grant.addOIDCClaims(prompt.details.missingOIDCClaims);
+    if (prompt.details.missingResourceScopes) {
+      for (const [resource, resourceScopes] of Object.entries(
+        prompt.details.missingResourceScopes,
+      )) {
+        grant.addResourceScope(resource, /** @type {string[]} */ (resourceScopes).join(' '));
+      }
+    }
     const grantId = await grant.save();
     await getProvider().interactionFinished(
       req,

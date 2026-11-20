@@ -35,6 +35,10 @@ export function createProvider({ config, pool, clients, jwks }) {
     0,
   );
 
+  const mcpOauth = Boolean(config.mcp?.oauthEnabled);
+  const scopes = ['openid', 'offline_access', 'email', 'profile', 'groups'];
+  if (mcpOauth) scopes.push('mcp');
+
   const provider = new Provider(config.issuer, {
     adapter: createAdapterClass(pool),
     clients: clients.map(({ client_id, always_include_groups, first_party, ...rest }) => ({
@@ -54,7 +58,7 @@ export function createProvider({ config, pool, clients, jwks }) {
       profile: ['name'],
       groups: ['groups'],
     },
-    scopes: ['openid', 'offline_access', 'email', 'profile', 'groups'],
+    scopes,
     conformIdTokenClaims: false,
     pkce: { required: () => true },
     ttl: {
@@ -88,6 +92,31 @@ export function createProvider({ config, pool, clients, jwks }) {
       },
       // Clients may revoke their own access and refresh tokens (RFC 7009).
       revocation: { enabled: true },
+      ...(mcpOauth
+        ? {
+            clientIdMetadataDocument: {
+              enabled: true,
+              ack: 'draft-02',
+            },
+            resourceIndicators: {
+              enabled: true,
+              getResourceServerInfo: (
+                /** @type {any} */ _ctx,
+                /** @type {string} */ resourceIndicator,
+              ) => {
+                if (resourceIndicator !== config.mcp.resourceUrl)
+                  return /** @type {any} */ (undefined);
+                return {
+                  scope: 'mcp',
+                  audience: resourceIndicator,
+                  accessTokenTTL: 600,
+                  accessTokenFormat: 'jwt',
+                  jwt: { sign: { alg: 'RS256' } },
+                };
+              },
+            },
+          }
+        : {}),
     },
     // First-party clients skip the consent screen.
     loadExistingGrant: async (ctx) => {

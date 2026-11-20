@@ -1,9 +1,19 @@
 import express from 'express';
 import { createApiClient } from '../client/http.js';
 import { createMcpServer } from './server.js';
+import { protectedResourceMetadata, wwwAuthenticate } from './oauth.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
 const TOKEN = /^tun_[A-Za-z0-9_-]{43}$/;
+
+/**
+ * @typedef {{
+ *   resourceUrl: string,
+ *   authorizationServerUrl: string,
+ *   resourceMetadataUrl: string,
+ *   verifyToken: (token: string) => Promise<{ ok: true, sub: string } | { ok: false, reason: string }>,
+ * }} McpOAuthOptions
+ */
 
 /**
  * @param {import('express').Response} res
@@ -17,12 +27,19 @@ function sendError(res, status, code, message) {
 
 /**
  * Express app serving the MCP endpoint at `POST /mcp` (stateless Streamable HTTP). Each request's
- * admin token is passed to the admin API for that request; nothing is stored. Other methods get 405.
- * @param {{ spec: any, url: string, fetch?: typeof globalThis.fetch }} options
+ * admin token (or OAuth JWT when `oauth` is configured) is passed to the admin API for that
+ * request; nothing is stored. Other methods get 405.
+ * @param {{ spec: any, url: string, fetch?: typeof globalThis.fetch, oauth?: McpOAuthOptions }} options
  */
-export function createMcpHttpApp({ spec, url, fetch }) {
+export function createMcpHttpApp({ spec, url, fetch, oauth }) {
   const app = express();
   app.disable('x-powered-by');
+
+  if (oauth) {
+    const metadata = protectedResourceMetadata(oauth.resourceUrl, oauth.authorizationServerUrl);
+    app.get('/.well-known/oauth-protected-resource/mcp', (_req, res) => res.json(metadata));
+    app.get('/.well-known/oauth-protected-resource', (_req, res) => res.json(metadata));
+  }
 
   app.all('/mcp', (req, res, next) => {
     if (req.method === 'POST') return next();
@@ -30,21 +47,46 @@ export function createMcpHttpApp({ spec, url, fetch }) {
     sendError(res, 405, 'method_not_allowed', 'Use POST /mcp');
   });
 
+  /**
+   * @param {import('express').Response} res
+   * @param {string} [error]
+   */
+  const sendUnauthorized = (res, error) => {
+    res.set(
+      'WWW-Authenticate',
+      oauth ? wwwAuthenticate(oauth.resourceMetadataUrl, error) : 'Bearer',
+    );
+    sendError(
+      res,
+      401,
+      'unauthorized',
+      oauth
+        ? 'A valid OAuth access token or admin token is required'
+        : 'An admin token is required: Authorization: Bearer tun_...',
+    );
+  };
+
   /** @type {express.RequestHandler} */
-  const authenticate = (req, res, next) => {
+  const authenticate = async (req, res, next) => {
     const match = /^Bearer\s+(\S+)$/i.exec(req.get('authorization') ?? '');
-    if (!match || !TOKEN.test(match[1])) {
-      res.set('WWW-Authenticate', 'Bearer');
-      sendError(
-        res,
-        401,
-        'unauthorized',
-        'An admin token is required: Authorization: Bearer tun_...',
-      );
-      return;
+    const token = match?.[1];
+    if (!token) return void sendUnauthorized(res);
+
+    if (TOKEN.test(token)) {
+      res.locals.token = token;
+      return void next();
     }
-    res.locals.token = match[1];
-    next();
+
+    if (!oauth) return void sendUnauthorized(res);
+
+    try {
+      const verified = await oauth.verifyToken(token);
+      if (!verified.ok) return void sendUnauthorized(res, 'invalid_token');
+      res.locals.token = token;
+      next();
+    } catch {
+      sendUnauthorized(res, 'invalid_token');
+    }
   };
 
   app.post('/mcp', authenticate, express.json({ limit: '1mb' }), async (req, res) => {

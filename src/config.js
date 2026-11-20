@@ -203,6 +203,22 @@ export function loadConfig(env = process.env, io = {}) {
   const intervalHours = int(env, 'CLEANUP_INTERVAL_HOURS', 24);
   if (intervalHours < 1) throw new Error('CLEANUP_INTERVAL_HOURS must be at least 1');
 
+  const mcpEnabled = env.MCP_ENABLED === 'true';
+  const mcpOauthEnabled = mcpEnabled || env.MCP_OAUTH_ENABLED === 'true';
+  const mcpResourceRaw = (env.MCP_RESOURCE_URL ?? '').trim().replace(/\/+$/, '');
+  const mcpResourceUrl = mcpResourceRaw || `${issuer}/mcp`;
+  if (mcpResourceRaw) {
+    let parsed;
+    try {
+      parsed = new URL(mcpResourceRaw);
+    } catch {
+      throw new Error('MCP_RESOURCE_URL must be an http or https URL');
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('MCP_RESOURCE_URL must be an http or https URL');
+    }
+  }
+
   const trustProxy = parseTrustProxy(env.TRUST_PROXY ?? 'false');
   return {
     issuer,
@@ -252,6 +268,11 @@ export function loadConfig(env = process.env, io = {}) {
       disabled: env.CLEANUP_DISABLED === 'true',
       startDelaySeconds: int(env, 'CLEANUP_START_DELAY_SECONDS', 60),
       intervalHours,
+    },
+    mcp: {
+      enabled: mcpEnabled,
+      oauthEnabled: mcpOauthEnabled,
+      resourceUrl: mcpResourceUrl,
     },
   };
 }

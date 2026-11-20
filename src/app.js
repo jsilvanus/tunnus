@@ -1,9 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs';
+import http from 'node:http';
+import { PassThrough } from 'node:stream';
 import express from 'express';
 import { createInteractionRouter } from './web/interactions.js';
 import { createProviderHolder } from './oidc/providerHolder.js';
 import { securityHeaders } from './web/security.js';
 import { createAdminRouter } from './admin/router.js';
+import { loadSpec, readSpecText } from './admin/spec.js';
 import { createHealthRouter, PACKAGE_VERSION } from './health.js';
 import { createPrivacyRouter } from './web/privacy.js';
 import { createMailRelayRouter } from './web/mailRelay.js';
@@ -12,6 +15,9 @@ import { setAuditMetrics } from './audit.js';
 import { logger } from './logger.js';
 import { requestLog } from './web/requestLog.js';
 import { errorHandler } from './web/errorHandler.js';
+import { createMcpHttpApp } from './mcp/http.js';
+import { createMcpJwtVerifier } from './mcp/oauth.js';
+import { loadJwks } from './oidc/keys.js';
 
 /**
  * Build the Express app. Everything is mounted under the issuer's path so a
@@ -44,23 +50,118 @@ export async function createApp({ config, pool, clients, mailer }, options = {})
   router.use(createPrivacyRouter({ config }));
   router.use(createInteractionRouter({ config, pool, getProvider: () => holder.current, mailer }));
   router.use(createMailRelayRouter({ pool, token: config.mailRelayToken, mailer }));
-  router.use(
-    '/admin/api/v1',
-    createAdminRouter({ config, pool, clients, reloadKeys: holder.reload, validateResponses }),
-  );
+  const verifyOAuthToken = config.mcp?.oauthEnabled
+    ? createMcpJwtVerifier({
+        issuer: config.issuer,
+        audience: config.mcp.resourceUrl,
+        fetchJwks: () => loadJwks(pool, config.keyEncryptionSecret),
+      })
+    : undefined;
+
+  const adminRouter = createAdminRouter({
+    config,
+    pool,
+    clients,
+    reloadKeys: holder.reload,
+    validateResponses,
+    verifyOAuthToken,
+  });
+  router.use('/admin/api/v1', adminRouter);
+
+  if (config.mcp?.enabled && verifyOAuthToken) {
+    const spec = loadSpec(readSpecText());
+    const localFetch = createLocalAdminFetch(adminRouter, `${config.issuer}/admin/api/v1`);
+    router.use(
+      createMcpHttpApp({
+        spec,
+        url: config.issuer,
+        fetch: localFetch,
+        oauth: {
+          resourceUrl: config.mcp.resourceUrl,
+          authorizationServerUrl: config.issuer,
+          resourceMetadataUrl: `${config.issuer}/.well-known/oauth-protected-resource/mcp`,
+          verifyToken: verifyOAuthToken,
+        },
+      }),
+    );
+  }
 
   // The provider's callback is built once per provider instance, not per request.
   let callbackFor = /** @type {import('oidc-provider').Provider | undefined} */ (undefined);
   let callback = /** @type {any} */ (undefined);
-  router.use((req, res, next) => {
+  const providerCallback = (
+    /** @type {any} */ req,
+    /** @type {any} */ res,
+    /** @type {any} */ next,
+  ) => {
     const current = holder.current;
     if (current !== callbackFor) {
       callbackFor = current;
       callback = current.callback();
     }
     callback(req, res, next);
-  });
+  };
+
+  if (config.mcp?.oauthEnabled) {
+    // RFC 8414 authorization server metadata alias for MCP clients such as ChatGPT.
+    router.get('/.well-known/oauth-authorization-server', (req, res, next) => {
+      req.url = '/.well-known/openid-configuration';
+      providerCallback(req, res, next);
+    });
+  }
+
+  router.use(providerCallback);
   router.use(errorHandler({ config, logger }));
   app.use(config.basePath || '/', router);
   return { app, provider: holder.current, holder, metrics };
+}
+
+/**
+ * In-process fetch adapter for dispatching `/admin/api/v1` calls directly to `adminRouter`.
+ * @param {express.Router} adminRouter
+ * @param {string} adminBaseUrl
+ * @returns {typeof globalThis.fetch}
+ */
+function createLocalAdminFetch(adminRouter, adminBaseUrl) {
+  const basePath = new URL(adminBaseUrl).pathname.replace(/\/+$/, '');
+  return async (targetUrl, init = {}) => {
+    const parsed = new URL(String(targetUrl));
+    const relUrl = parsed.pathname.slice(basePath.length) + parsed.search;
+    const bodyBuf = init.body != null ? Buffer.from(String(init.body)) : Buffer.alloc(0);
+    const socket = new PassThrough();
+    const req = new http.IncomingMessage(/** @type {any} */ (socket));
+    req.method = init.method ?? 'GET';
+    req.url = relUrl || '/';
+    req.headers = {
+      ...Object.fromEntries(
+        Object.entries(init.headers ?? {}).map(([k, v]) => [k.toLowerCase(), String(v)]),
+      ),
+      ...(bodyBuf.length ? { 'content-length': String(bodyBuf.length) } : {}),
+    };
+    const res = new http.ServerResponse(req);
+    /** @type {Buffer[]} */
+    const chunks = [];
+    res.write = (/** @type {any} */ chunk) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      return true;
+    };
+    return await new Promise((resolve, reject) => {
+      res.end = (/** @type {any} */ chunk) => {
+        if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        const text = Buffer.concat(chunks).toString('utf8');
+        resolve(
+          new Response(res.statusCode === 204 ? null : text, {
+            status: res.statusCode,
+            headers: /** @type {any} */ (res.getHeaders()),
+          }),
+        );
+        return res;
+      };
+      adminRouter(/** @type {any} */ (req), /** @type {any} */ (res), (/** @type {any} */ err) =>
+        err ? reject(err) : resolve(new Response(null, { status: 404 })),
+      );
+      if (bodyBuf.length) req.push(bodyBuf);
+      req.push(null);
+    });
+  };
 }

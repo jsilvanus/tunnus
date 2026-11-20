@@ -19,11 +19,14 @@ export const handlers = {
       `${USER_SELECT} WHERE u.id = $1 ${USER_GROUP_BY}`,
       [ctx.actor.userId],
     );
+    if (!users[0]) throw new AdminError(401, 'unauthorized', 'Missing or invalid admin token');
+    if (ctx.actor.tokenId === null) {
+      return { body: { user: userJson(users[0]) } };
+    }
     const { rows: tokens } = await ctx.pool.query(`${TOKEN_COLUMNS} WHERE id = $1`, [
       ctx.actor.tokenId,
     ]);
-    if (!users[0] || !tokens[0])
-      throw new AdminError(401, 'unauthorized', 'Missing or invalid admin token');
+    if (!tokens[0]) throw new AdminError(401, 'unauthorized', 'Missing or invalid admin token');
     return { body: { user: userJson(users[0]), token: tokenJson(tokens[0]) } };
   },
 

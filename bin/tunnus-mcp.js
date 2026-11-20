@@ -7,6 +7,7 @@ import { loadSpec, readSpecText } from '../src/admin/spec.js';
 import { ConfigError, resolveConfig } from '../src/client/config.js';
 import { createApiClient } from '../src/client/http.js';
 import { createMcpHttpApp } from '../src/mcp/http.js';
+import { createMcpJwtVerifier } from '../src/mcp/oauth.js';
 import { createMcpServer } from '../src/mcp/server.js';
 
 const USAGE = `Usage:
@@ -78,7 +79,32 @@ async function main() {
     if (!Number.isInteger(port) || port < 0 || port > 65535) {
       return usageError('MCP_PORT must be a port number');
     }
-    const app = createMcpHttpApp({ spec, url: config.url });
+    const publicUrl = (env.MCP_PUBLIC_URL ?? '').trim().replace(/\/+$/, '');
+    const oauth =
+      env.MCP_OAUTH_ENABLED === 'true' || publicUrl
+        ? (() => {
+            const base = publicUrl || `http://${host}:${port}`;
+            const resourceUrl =
+              (env.MCP_RESOURCE_URL ?? '').trim().replace(/\/+$/, '') || `${base}/mcp`;
+            const resourceMetadataUrl = `${base}/.well-known/oauth-protected-resource/mcp`;
+            const jwksUrl = `${config.url}/jwks`;
+            return {
+              resourceUrl,
+              authorizationServerUrl: config.url,
+              resourceMetadataUrl,
+              verifyToken: createMcpJwtVerifier({
+                issuer: config.url,
+                audience: resourceUrl,
+                fetchJwks: async () => {
+                  const res = await fetch(jwksUrl);
+                  if (!res.ok) throw new Error(`JWKS fetch failed (${res.status})`);
+                  return /** @type {Promise<{ keys: any[] }>} */ (res.json());
+                },
+              }),
+            };
+          })()
+        : undefined;
+    const app = createMcpHttpApp({ spec, url: config.url, oauth });
     app.listen(port, host, () => {
       process.stderr.write(`tunnus-mcp listening on http://${host}:${port}/mcp\n`);
     });
