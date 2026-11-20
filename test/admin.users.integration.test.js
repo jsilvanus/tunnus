@@ -224,7 +224,10 @@ describe('list', () => {
     await api('PUT', `/groups/${child.body.id}/members/${inChild.id}`);
     await api('PUT', `/groups/${sibling.body.id}/members/${outside.id}`);
 
-    const found = await api('GET', '/users?group_prefix=' + encodeURIComponent('parish/riihimäki'));
+    const found = await api(
+      'GET',
+      '/users?group_prefix=' + encodeURIComponent('parish/riihimäki'),
+    );
     expect(found.body.items.map((/** @type {any} */ u) => u.email)).toEqual([
       'prefix.child@example.org',
       'prefix.root@example.org',
