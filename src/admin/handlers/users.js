@@ -75,7 +75,15 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async listUsers(ctx) {
-    const { q, email, status, is_admin: isAdmin, group_id: groupId, group_prefix: groupPrefix, limit } = ctx.query;
+    const {
+      q,
+      email,
+      status,
+      is_admin: isAdmin,
+      group_id: groupId,
+      group_prefix: groupPrefix,
+      limit,
+    } = ctx.query;
     const pattern = q === undefined ? null : `%${escapeLike(q)}%`;
     const after = ctx.query.cursor === undefined ? null : cursorField(ctx.query.cursor, 'email');
     const { rows } = await ctx.pool.query(
