@@ -3,9 +3,16 @@ import { t } from './i18n.js';
 import { logger as defaultLogger } from './logger.js';
 
 /**
- * A Brevo template to send instead of the text. `params` are passed to the template as strings.
- * @typedef {{ id: number, params: Record<string, string> }} TemplateRef
- * @typedef {{ to: string, subject: string, text: string, template?: TemplateRef }} Message
+ * A Brevo template to send instead of the text. `params` are passed to the template.
+ * @typedef {{ id: number, params: Record<string, unknown> }} TemplateRef
+ * @typedef {{
+ *   from?: string,
+ *   to: string | string[],
+ *   subject: string,
+ *   text: string,
+ *   html?: string,
+ *   template?: TemplateRef,
+ * }} Message
  * @typedef {{ send(message: Message): Promise<void> }} Transport
  * @typedef {{
  *   info: (o: object, m: string) => void,
@@ -15,6 +22,7 @@ import { logger as defaultLogger } from './logger.js';
  * @typedef {{
  *   sendCode(to: string, code: string, link: string, locale: import('./i18n.js').Locale): Promise<void>,
  *   sendInactiveWarning(to: string, deleteOn: Date, locale: import('./i18n.js').Locale): Promise<void>,
+ *   send?(message: Message): Promise<void>,
  * }} Mailer
  */
 
@@ -153,6 +161,9 @@ export function createMailer(config, transport) {
         };
       await transport.send(message);
     },
+    async send(message) {
+      await transport.send(message);
+    },
   };
 }
 
@@ -166,7 +177,13 @@ export function createConsoleTransport(logger) {
   return {
     async send(message) {
       logger.info(
-        { to: message.to, subject: message.subject, text: message.text },
+        {
+          ...(message.from !== undefined ? { from: message.from } : {}),
+          to: message.to,
+          subject: message.subject,
+          text: message.text,
+          ...(message.html !== undefined ? { html: message.html } : {}),
+        },
         'mail (console provider)',
       );
       if (message.template)
@@ -205,10 +222,11 @@ export function createSmtpTransport(smtpUrl, from) {
   return {
     async send(message) {
       await transporter.sendMail({
-        from,
+        from: message.from ?? from,
         to: message.to,
         subject: message.subject,
         text: message.text,
+        ...(message.html !== undefined ? { html: message.html } : {}),
       });
     },
   };
@@ -228,12 +246,13 @@ export function createSmtpTransport(smtpUrl, from) {
  * @returns {Transport}
  */
 export function createBrevoTransport(apiKey, from, fetchImpl = fetch, log = defaultLogger) {
-  const sender = parseFrom(from);
+  const defaultSender = parseFrom(from);
 
   /**
    * @param {Record<string, unknown>} body
+   * @param {{ name: string | undefined, email: string }} [sender]
    */
-  async function post(body) {
+  async function post(body, sender = defaultSender) {
     const res = await fetchImpl('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
@@ -250,13 +269,23 @@ export function createBrevoTransport(apiKey, from, fetchImpl = fetch, log = defa
 
   return {
     async send(message) {
-      const to = [{ email: message.to }];
+      const sender = message.from !== undefined ? parseFrom(message.from) : defaultSender;
+      const recipients = Array.isArray(message.to) ? message.to : [message.to];
+      const to = recipients.map((email) => ({ email }));
+      const content = {
+        subject: message.subject,
+        textContent: message.text,
+        ...(message.html !== undefined ? { htmlContent: message.html } : {}),
+      };
       if (!message.template) {
-        await post({ to, subject: message.subject, textContent: message.text });
+        await post({ to, ...content }, sender);
         return;
       }
       try {
-        await post({ to, templateId: message.template.id, params: message.template.params });
+        await post(
+          { to, templateId: message.template.id, params: message.template.params },
+          sender,
+        );
       } catch (err) {
         const status = /** @type {{ status?: unknown }} */ (err).status;
         if (typeof status !== 'number' || status < 400 || status >= 500) throw err;
@@ -264,7 +293,7 @@ export function createBrevoTransport(apiKey, from, fetchImpl = fetch, log = defa
           { error: /** @type {Error} */ (err).name, status },
           'Brevo template rejected; sending plain text instead',
         );
-        await post({ to, subject: message.subject, textContent: message.text });
+        await post({ to, ...content }, sender);
       }
     },
   };

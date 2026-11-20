@@ -67,6 +67,16 @@ export function createMetrics() {
     help: 'Inactivity warning mails sent',
     registers: [registry],
   });
+  const mailRelayed = new Counter({
+    name: 'tunnus_mail_relayed_total',
+    help: 'Mails sent through the mail relay endpoint',
+    registers: [registry],
+  });
+  const mailRelayAuthFailures = new Counter({
+    name: 'tunnus_mail_relay_auth_failures_total',
+    help: 'Mail relay requests with a missing or invalid token',
+    registers: [registry],
+  });
 
   /** @type {Gauge<'status'>} */
   const users = new Gauge({
@@ -130,6 +140,10 @@ export function createMetrics() {
         return usersDeletedInactive.inc();
       case 'user.inactive_warned':
         return inactiveWarnings.inc();
+      case 'mail_relay.sent':
+        return mailRelayed.inc();
+      case 'mail_relay.auth_failed':
+        return mailRelayAuthFailures.inc();
       default:
         if (action.startsWith('admin.')) adminRequests.inc();
     }

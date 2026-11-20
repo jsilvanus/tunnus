@@ -56,18 +56,21 @@ describe('loadConfig metrics, cleanup and privacy settings', () => {
   it('uses documented defaults', () => {
     const config = loadConfig(MINIMAL);
     expect(config.metricsBearerToken).toBe('');
+    expect(config.mailRelayToken).toBe('');
     expect(config.cleanup).toEqual({ disabled: false, startDelaySeconds: 60, intervalHours: 24 });
     expect(config.privacy).toEqual({ dpoContact: '', processors: [] });
   });
-  it('reads metrics token and cleanup overrides', () => {
+  it('reads metrics token, mail relay token and cleanup overrides', () => {
     const config = loadConfig({
       ...MINIMAL,
       METRICS_BEARER_TOKEN: 'metrics-token',
+      MAIL_RELAY_TOKEN: 'relay-token',
       CLEANUP_DISABLED: 'true',
       CLEANUP_START_DELAY_SECONDS: '0',
       CLEANUP_INTERVAL_HOURS: '6',
     });
     expect(config.metricsBearerToken).toBe('metrics-token');
+    expect(config.mailRelayToken).toBe('relay-token');
     expect(config.cleanup).toEqual({ disabled: true, startDelaySeconds: 0, intervalHours: 6 });
   });
   it('only treats the exact string true as disabling cleanup', () => {

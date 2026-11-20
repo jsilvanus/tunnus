@@ -102,6 +102,8 @@ describe('audit action counters', () => {
     metrics.countAuditAction('admin.createUser');
     metrics.countAuditAction('user.deleted_inactive');
     metrics.countAuditAction('user.inactive_warned');
+    metrics.countAuditAction('mail_relay.sent', { recipients: 2 });
+    metrics.countAuditAction('mail_relay.auth_failed', { reason: 'invalid' });
     const text = await metrics.registry.metrics();
     expect(sample(text, 'tunnus_sign_ins_total')).toBe(2);
     expect(sample(text, 'tunnus_sign_ups_total')).toBe(1);
@@ -111,6 +113,8 @@ describe('audit action counters', () => {
     expect(sample(text, 'tunnus_admin_requests_total')).toBe(1);
     expect(sample(text, 'tunnus_users_deleted_inactive_total')).toBe(1);
     expect(sample(text, 'tunnus_inactive_warnings_sent_total')).toBe(1);
+    expect(sample(text, 'tunnus_mail_relayed_total')).toBe(1);
+    expect(sample(text, 'tunnus_mail_relay_auth_failures_total')).toBe(1);
   });
 
   it('labels rate limit hits by reason, using other for unknown reasons', async () => {

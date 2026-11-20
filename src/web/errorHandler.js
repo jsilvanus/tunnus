@@ -23,7 +23,7 @@ export function errorHandler({ config, logger }) {
       'request failed',
     );
     if (res.headersSent) return next(err);
-    if (req.path.startsWith('/admin/api/')) {
+    if (req.path.startsWith('/admin/api/') || req.path.startsWith('/api/')) {
       res.status(500).json(errorBody('internal', 'Internal error'));
       return;
     }

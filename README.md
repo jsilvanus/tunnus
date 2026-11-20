@@ -40,6 +40,8 @@ Operational endpoints under the issuer path:
   is set; requires `Authorization: Bearer <token>`.
 - `GET <issuer>/privacy`: the privacy notice, built from the controller and
   processor settings (or a redirect to `PRIVACY_NOTICE_URL`).
+- `POST <issuer>/api/mail`: transactional mail relay for relying parties, only
+  when `MAIL_RELAY_TOKEN` is set; requires `Authorization: Bearer <token>`.
 
 ## Administration
 

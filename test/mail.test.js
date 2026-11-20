@@ -230,7 +230,7 @@ describe('Brevo templates', () => {
       BREVO_TEMPLATE_SIGNIN_ID: '10',
       BREVO_TEMPLATE_SIGNIN_ID_SV: '20',
     });
-    /** @type {{ to: string, template?: any }[]} */
+    /** @type {{ to: string | string[], template?: any }[]} */
     const sent = [];
     const mailer = createMailer(cfg, { send: async (m) => void sent.push(m) });
     await mailer.sendCode('b@example.org', '123456', 'https://id.example.org/l', 'sv');

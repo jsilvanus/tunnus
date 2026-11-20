@@ -69,6 +69,7 @@ the follow-up list in [`TODO.md`](TODO.md). Operational settings are in
 | Failed code or link attempts        | 5 per code                      | Code                                                            |
 | Failed attempts across interactions | 10 in one hour                  | Address (lockout for the hour, L13)                             |
 | Failed admin authentication         | 20 in 10 minutes                | IP, in memory per process; valid tokens are never refused by it |
+| Failed mail relay authentication    | 20 in 10 minutes                | IP, in memory per process; valid tokens are never refused by it |
 
 The code limits (per address, per IP, daily and the lockout) are counted in the
 database and checked in one transaction under advisory locks, so concurrent

@@ -5,6 +5,7 @@ import { securityHeaders } from './web/security.js';
 import { createAdminRouter } from './admin/router.js';
 import { createHealthRouter, PACKAGE_VERSION } from './health.js';
 import { createPrivacyRouter } from './web/privacy.js';
+import { createMailRelayRouter } from './web/mailRelay.js';
 import { createMetrics } from './metrics.js';
 import { setAuditMetrics } from './audit.js';
 import { logger } from './logger.js';
@@ -33,6 +34,7 @@ export async function createApp({ config, pool, clients, mailer }, options = {})
   router.use(metrics.router({ pool, token: config.metricsBearerToken }));
   router.use(createPrivacyRouter({ config }));
   router.use(createInteractionRouter({ config, pool, getProvider: () => holder.current, mailer }));
+  router.use(createMailRelayRouter({ pool, token: config.mailRelayToken, mailer }));
   router.use(
     '/admin/api/v1',
     createAdminRouter({ config, pool, clients, reloadKeys: holder.reload, validateResponses }),

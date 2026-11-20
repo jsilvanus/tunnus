@@ -165,6 +165,46 @@ Fallback rules:
 - A 5xx, a timeout or a network error is not retried as text; the send fails as any
   other mail error would.
 
+### Mail relay for relying parties
+
+Relying parties can offload transactional email delivery to Tunnus's configured
+mail transport (`brevo`, `smtp` or `console`) by posting to `POST <issuer>/api/mail`
+(also served at `POST <issuer>/admin/api/v1/mail`). The endpoint is off (`404`)
+while `MAIL_RELAY_TOKEN` is empty.
+
+When `MAIL_RELAY_TOKEN` is set, requests must carry `Authorization: Bearer <MAIL_RELAY_TOKEN>`
+and a JSON body:
+
+```json
+{
+  "from": "app@example.org",
+  "to": ["recipient@example.org"],
+  "subject": "Notification",
+  "text": "Plain-text fallback body",
+  "html": "<p>Optional HTML body</p>",
+  "templateId": 42,
+  "params": {
+    "title": "Notification",
+    "url": "https://app.example.org"
+  }
+}
+```
+
+- `from` (required): sender email address (or `Name <addr@host>`).
+- `to` (required): non-empty array of recipient email addresses (up to 100).
+- `subject` and `text` (required): plain-text subject and body (used directly for
+  SMTP/console, or as the fallback when no `templateId` is set or when Brevo
+  rejects the template with a 4xx).
+- `html` (optional): HTML body (`htmlContent` in Brevo when sending without a
+  template or falling back from a rejected template).
+- `templateId` and `params` (optional): positive integer Brevo template id and
+  template parameter object, passed to Brevo `/v3/smtp/email`.
+- Responses: `200` (`{ "ok": true }`) when sent, `400` on validation failure,
+  `401` on a missing or wrong bearer token, `429` after repeated failed auth
+  attempts from an IP, `502` when the upstream mail provider fails.
+- Every send is audited as `mail_relay.sent` with the recipient count and
+  optional `templateId` only (never addresses or message content).
+
 ## Database
 
 Tunnus needs one PostgreSQL 16 database. It can have its own database or use
@@ -256,6 +296,8 @@ Metrics are in a private registry, prefixed `tunnus_`:
 | `tunnus_admin_requests_total`                   | Other admin API requests                                                |
 | `tunnus_users_deleted_inactive_total`           | Accounts deleted for inactivity                                         |
 | `tunnus_inactive_warnings_sent_total`           | Inactivity warnings sent                                                |
+| `tunnus_mail_relayed_total`                     | Mails sent through the mail relay endpoint                              |
+| `tunnus_mail_relay_auth_failures_total`         | Failed mail relay authentications                                       |
 | `tunnus_users{status}`                          | Users by status (gauge)                                                 |
 | `tunnus_signing_key_age_seconds`                | Age of the active signing key (gauge)                                   |
 | `tunnus_cleanup_last_success_timestamp_seconds` | Time of the last complete cleanup run; `0` before the first run (gauge) |

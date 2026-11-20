@@ -222,6 +222,7 @@ export function loadConfig(env = process.env, io = {}) {
     smtpUrl: env.SMTP_URL ?? '',
     brevoApiKey: env.BREVO_API_KEY ?? '',
     brevoTemplates: loadBrevoTemplates(env, env.MAIL_PROVIDER ?? 'console'),
+    mailRelayToken: env.MAIL_RELAY_TOKEN ?? '',
     limits: {
       perEmailPerHour: int(env, 'RATE_LIMIT_EMAIL_PER_HOUR', 5),
       perIpPerHour: int(env, 'RATE_LIMIT_IP_PER_HOUR', 20),
