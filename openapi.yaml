@@ -691,7 +691,7 @@ components:
       type: string
       minLength: 1
       maxLength: 128
-      pattern: '^[\p{L}\p{N}][\p{L}\p{N}._-]*(/[\p{L}\p{N}][\p{L}\p{N}._-]*)*$'
+      pattern: '^[\\p{L}\\p{N}][\\p{L}\\p{N}._-]*(/[\\p{L}\\p{N}][\\p{L}\\p{N}._-]*)*
 
     User:
       type: object
