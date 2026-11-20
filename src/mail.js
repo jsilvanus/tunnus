@@ -4,7 +4,8 @@ import { logger as defaultLogger } from './logger.js';
 
 /**
  * A Brevo template to send instead of the text. `params` are passed to the template.
- * @typedef {{ id: number, params: Record<string, unknown> }} TemplateRef
+ * When `fallbackId` is also set, a 4xx on `id` tries `fallbackId` before falling back to text/HTML.
+ * @typedef {{ id: number, fallbackId?: number, params: Record<string, unknown> }} TemplateRef
  * @typedef {{
  *   from?: string,
  *   to: string | string[],
@@ -136,6 +137,29 @@ export function templateIdFor(ids, locale) {
 }
 
 /**
+ * Build the template reference for a mail kind and locale: prefers the locale-specific id,
+ * includes `ids.default` as `fallbackId` when both are configured and distinct, and returns
+ * `undefined` when neither is configured.
+ * @param {{ default?: number, fi?: number, sv?: number, en?: number }} ids
+ * @param {import('./i18n.js').Locale} locale
+ * @param {Record<string, unknown>} params
+ * @returns {TemplateRef | undefined}
+ */
+export function buildTemplateRef(ids, locale, params) {
+  const id = templateIdFor(ids, locale);
+  if (id === undefined) return undefined;
+  const fallbackId =
+    ids[locale] !== undefined && ids.default !== undefined && ids.default !== ids[locale]
+      ? ids.default
+      : undefined;
+  return {
+    id,
+    ...(fallbackId !== undefined ? { fallbackId } : {}),
+    params,
+  };
+}
+
+/**
  * @param {import('./config.js').Config} config
  * @param {Transport} transport
  * @returns {Mailer}
@@ -145,20 +169,23 @@ export function createMailer(config, transport) {
     async sendCode(to, code, link, locale) {
       /** @type {Message} */
       const message = { to, ...buildCodeMail(config, code, link, locale) };
-      const id = templateIdFor(config.brevoTemplates.signin, locale);
-      if (id !== undefined)
-        message.template = { id, params: buildCodeTemplateParams(config, code, link, locale) };
+      const template = buildTemplateRef(
+        config.brevoTemplates.signin,
+        locale,
+        buildCodeTemplateParams(config, code, link, locale),
+      );
+      if (template !== undefined) message.template = template;
       await transport.send(message);
     },
     async sendInactiveWarning(to, deleteOn, locale) {
       /** @type {Message} */
       const message = { to, ...buildInactiveWarningMail(config, locale, deleteOn) };
-      const id = templateIdFor(config.brevoTemplates.inactive, locale);
-      if (id !== undefined)
-        message.template = {
-          id,
-          params: buildInactiveTemplateParams(config, locale, deleteOn),
-        };
+      const template = buildTemplateRef(
+        config.brevoTemplates.inactive,
+        locale,
+        buildInactiveTemplateParams(config, locale, deleteOn),
+      );
+      if (template !== undefined) message.template = template;
       await transport.send(message);
     },
     async send(message) {
@@ -281,20 +308,27 @@ export function createBrevoTransport(apiKey, from, fetchImpl = fetch, log = defa
         await post({ to, ...content }, sender);
         return;
       }
-      try {
-        await post(
-          { to, templateId: message.template.id, params: message.template.params },
-          sender,
-        );
-      } catch (err) {
-        const status = /** @type {{ status?: unknown }} */ (err).status;
-        if (typeof status !== 'number' || status < 400 || status >= 500) throw err;
-        log.warn(
-          { error: /** @type {Error} */ (err).name, status },
-          'Brevo template rejected; sending plain text instead',
-        );
-        await post({ to, ...content }, sender);
+      const candidateIds = [
+        message.template.id,
+        ...(message.template.fallbackId !== undefined &&
+        message.template.fallbackId !== message.template.id
+          ? [message.template.fallbackId]
+          : []),
+      ];
+      for (const templateId of candidateIds) {
+        try {
+          await post({ to, templateId, params: message.template.params }, sender);
+          return;
+        } catch (err) {
+          const status = /** @type {{ status?: unknown }} */ (err).status;
+          if (typeof status !== 'number' || status < 400 || status >= 500) throw err;
+          log.warn(
+            { error: /** @type {Error} */ (err).name, status },
+            'Brevo template rejected; sending plain text instead',
+          );
+        }
       }
+      await post({ to, ...content }, sender);
     },
   };
 }

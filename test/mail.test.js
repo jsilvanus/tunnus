@@ -275,6 +275,24 @@ describe('Brevo templates', () => {
     expect(JSON.stringify(log.warn.mock.calls)).not.toContain('654321');
   });
 
+  it('tries locale template first, then fallback default template, then plain text on 4xx', async () => {
+    const cfg = brevoConfig({
+      BREVO_TEMPLATE_SIGNIN_ID: '10',
+      BREVO_TEMPLATE_SIGNIN_ID_FI: '21',
+    });
+    const { fn, bodies } = fakeFetch([404, 404, 201]);
+    const log = fakeLog();
+    const transport = createBrevoTransport('key', 'a@example.org', fn, log);
+    const mailer = createMailer(cfg, transport);
+    await mailer.sendCode('b@example.org', '123456', 'https://id.example.org/l', 'fi');
+    expect(bodies).toHaveLength(3);
+    expect(bodies[0]).toMatchObject({ templateId: 21, params: { locale: 'fi', code: '123456' } });
+    expect(bodies[1]).toMatchObject({ templateId: 10, params: { locale: 'fi', code: '123456' } });
+    expect(bodies[2]).not.toHaveProperty('templateId');
+    expect(bodies[2]).toHaveProperty('textContent');
+    expect(log.warn).toHaveBeenCalledTimes(2);
+  });
+
   it('does not retry a 5xx as plain text', async () => {
     const { fn, bodies } = fakeFetch([503, 201]);
     const transport = createBrevoTransport('key', 'a@example.org', fn, fakeLog());
