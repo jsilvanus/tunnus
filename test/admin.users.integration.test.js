@@ -224,10 +224,8 @@ describe('list', () => {
     await api('PUT', `/groups/${child.body.id}/members/${inChild.id}`);
     await api('PUT', `/groups/${sibling.body.id}/members/${outside.id}`);
 
-    const found = await api(
-      'GET',
-      '/users?group_prefix=' + encodeURIComponent('parish/riihimäki'),
-    );
+    const prefix = encodeURIComponent('parish/riihimäki');
+    const found = await api('GET', `/users?group_prefix=${prefix}`);
     expect(found.body.items.map((/** @type {any} */ u) => u.email)).toEqual([
       'prefix.child@example.org',
       'prefix.root@example.org',
@@ -235,15 +233,14 @@ describe('list', () => {
 
     const combined = await api(
       'GET',
-      '/users?group_prefix=' + encodeURIComponent('parish/riihimäki') +
-        '&email=PREFIX.CHILD%40EXAMPLE.ORG&status=active',
+      `/users?group_prefix=${prefix}&email=PREFIX.CHILD%40EXAMPLE.ORG&status=active`,
     );
     expect(combined.body.items.map((/** @type {any} */ u) => u.email)).toEqual([
       'prefix.child@example.org',
     ]);
     const exactAndPrefix = await api(
       'GET',
-      `/users?group_id=${child.body.id}&group_prefix=` + encodeURIComponent('parish/riihimäki'),
+      `/users?group_id=${child.body.id}&group_prefix=${prefix}`,
     );
     expect(exactAndPrefix.body.items.map((/** @type {any} */ u) => u.email)).toEqual([
       'prefix.child@example.org',
