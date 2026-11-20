@@ -363,6 +363,8 @@ describe('formatting', () => {
           is_admin: true,
           created_at: '2026-01-01T00:00:00.000Z',
           last_login_at: null,
+          last_email_verified_at: null,
+          totp_enabled: false,
           groups: ['all', 'staff'],
         },
       ],
@@ -377,6 +379,8 @@ describe('formatting', () => {
       'is_admin',
       'created_at',
       'last_login_at',
+      'last_email_verified_at',
+      'totp_enabled',
       'groups',
     ]);
     expect(row).toContain('all,staff');
