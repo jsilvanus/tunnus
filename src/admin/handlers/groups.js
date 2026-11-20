@@ -59,21 +59,22 @@ const defaultGroupConflict = (name) =>
 
 export const handlers = {
   /**
-   * Ordered by name; keyset paging on name. The optional name filter is exact.
+   * Ordered by name; keyset paging on name. Name is exact; prefix includes the exact path and descendants.
    * @param {HandlerContext} ctx
    * @returns {Promise<HandlerResult>}
    */
   async listGroups(ctx) {
-    const { name, limit } = ctx.query;
+    const { name, prefix, limit } = ctx.query;
     const after = ctx.query.cursor === undefined ? null : cursorField(ctx.query.cursor, 'name');
     const { rows } = await ctx.pool.query(
       `${GROUP_SELECT}
         WHERE ($1::text IS NULL OR g.name = $1)
-          AND ($2::text IS NULL OR g.name > $2)
+          AND ($2::text IS NULL OR g.name = $2 OR left(g.name, length($2) + 1) = $2 || '/')
+          AND ($3::text IS NULL OR g.name > $3)
         ${GROUP_GROUP_BY}
         ORDER BY g.name
-        LIMIT $3`,
-      [name ?? null, after, limit + 1],
+        LIMIT $4`,
+      [name ?? null, prefix ?? null, after, limit + 1],
     );
     const result = page(rows, limit, (row) => ({ name: row.name }));
     return {
