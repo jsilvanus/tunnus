@@ -185,6 +185,8 @@ function errorResult(text) {
  *   statePath?: string,
  *   issuer?: string,
  *   accountUrl?: string,
+ *   userId?: string,
+ *   actor?: { userId?: string, email?: string, label?: string } | null,
  *   loadState?: typeof loadMcpState,
  *   saveState?: typeof saveMcpState,
  *   readFile?: (path: string) => string,
@@ -200,6 +202,8 @@ export function createMcpServer({
   statePath,
   issuer,
   accountUrl,
+  userId,
+  actor,
   loadState = loadMcpState,
   saveState = saveMcpState,
   readFile,
@@ -214,7 +218,7 @@ export function createMcpServer({
   const resolvedAccountUrl = accountUrl || (issuer ? `${issuer}/account` : '/account');
 
   const getState = async () => {
-    if (stateStore) return await stateStore.getState();
+    if (stateStore) return await stateStore.getState(userId);
     if (memoryState) return memoryState;
     const resolvedPath = statePath ?? resolveMcpStatePath();
     return loadState({ statePath: resolvedPath, readFile });
@@ -276,7 +280,7 @@ export function createMcpServer({
 
     if (tool.name === 'clearCommitList') {
       if (stateStore?.clearCommitList) {
-        await stateStore.clearCommitList();
+        await stateStore.clearCommitList({ userId });
       } else {
         const state = await getState();
         clearCommitList(state);
@@ -308,7 +312,7 @@ export function createMcpServer({
         };
       }
       if (stateStore?.executeCommitList) {
-        const res = await stateStore.executeCommitList({ callApi, opsById });
+        const res = await stateStore.executeCommitList({ userId, callApi, opsById });
         if (!res.ok) {
           return errorResult(res.error);
         }
@@ -406,11 +410,12 @@ export function createMcpServer({
         path: tool.operation.path,
         params,
         body: tool.operation.bodySchema ? body : undefined,
+        stagedBy: actor ?? null,
       };
 
       let stagedId;
       if (stateStore?.stageAction) {
-        const res = await stateStore.stageAction({ action: actionPayload });
+        const res = await stateStore.stageAction({ userId, action: actionPayload, actor });
         if (!res.ok) {
           return errorResult(
             `The commit list is currently locked against new entries. Direct the user to ${resolvedAccountUrl} to unlock the list.`,

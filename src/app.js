@@ -27,6 +27,7 @@ import {
   setDbMcpLock,
   stageDbMcpAction,
 } from './mcp/dbState.js';
+import { findActiveToken } from './adminTokens.js';
 import { loadJwks } from './oidc/keys.js';
 
 /**
@@ -117,12 +118,14 @@ export async function createApp({ config, pool, clients, mailer }, options = {})
 
   if (config.mcp?.enabled && verifyOAuthToken) {
     const mcpDbStore = {
-      getState: () => getDbMcpState(pool),
-      stageAction: (/** @type {any} */ { action }) => stageDbMcpAction(pool, { action }),
-      clearCommitList: () => clearDbMcpCommitList(pool),
-      setLock: (/** @type {any} */ locked) => setDbMcpLock(pool, { locked }),
-      executeCommitList: (/** @type {any} */ { callApi }) =>
-        executeDbMcpCommitList(pool, { callApi, opsById }),
+      getState: (/** @type {string | undefined} */ userId) => getDbMcpState(pool, userId),
+      stageAction: (/** @type {any} */ { userId, action, actor }) =>
+        stageDbMcpAction(pool, { userId, action, actor }),
+      clearCommitList: (/** @type {any} */ { userId } = {}) =>
+        clearDbMcpCommitList(pool, { userId }),
+      setLock: (/** @type {any} */ { userId, locked }) => setDbMcpLock(pool, { userId, locked }),
+      executeCommitList: (/** @type {any} */ { userId, callApi }) =>
+        executeDbMcpCommitList(pool, { userId, callApi, opsById }),
     };
     router.use(
       createMcpHttpApp({
@@ -132,6 +135,11 @@ export async function createApp({ config, pool, clients, mailer }, options = {})
         stateStore: mcpDbStore,
         issuer: config.issuer,
         accountUrl: `${config.issuer}/account`,
+        resolveTokenUser: async (token) => {
+          const found = await findActiveToken(pool, token);
+          if (!found.ok) return { ok: false, reason: found.reason };
+          return { ok: true, user: found.user, token: found.token };
+        },
         oauth: {
           resourceUrl: config.mcp.resourceUrl,
           authorizationServerUrl: config.issuer,

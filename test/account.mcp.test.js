@@ -327,4 +327,78 @@ describe('createAccountRouter MCP endpoints', () => {
     );
     expect(getExecuted()).toBe(true);
   });
+
+  it('isolates MCP state per user on /account', async () => {
+    const userA = '00000000-0000-0000-0000-000000000001';
+    const userB = '00000000-0000-0000-0000-000000000002';
+    const app = express();
+    const pool = {
+      query: async (/** @type {string} */ sql, /** @type {any[]} */ params) => {
+        if (sql.includes('FROM users u')) {
+          const id = params[0];
+          return {
+            rows: [
+              {
+                id,
+                email: id === userA ? 'a@example.org' : 'b@example.org',
+                display_name: id === userA ? 'User A' : 'User B',
+                status: 'active',
+                groups: ['admin'],
+              },
+            ],
+          };
+        }
+        if (sql.includes('totp_enabled_at, last_email_verified_at FROM users')) {
+          return { rows: [{ totp_enabled_at: null, last_email_verified_at: new Date() }] };
+        }
+        if (sql.includes('mcp_state')) {
+          const targetUser = params?.[0];
+          if (targetUser === userA) {
+            return {
+              rows: [
+                {
+                  user_id: userA,
+                  fixed_time_until: null,
+                  list_locked: false,
+                  commit_list: [{ id: 'c-a', operationId: 'deleteUser', command: 'users delete' }],
+                  updated_at: new Date(),
+                },
+              ],
+            };
+          }
+          return {
+            rows: [
+              {
+                user_id: userB,
+                fixed_time_until: null,
+                list_locked: false,
+                commit_list: [],
+                updated_at: new Date(),
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      },
+    };
+    app.use(
+      createAccountRouter({
+        config: /** @type {any} */ (mockConfig),
+        pool: /** @type {any} */ (pool),
+        getProvider: () => ({ createContext: () => ({}), Session: { get: async () => null } }),
+        mailer: /** @type {any} */ ({}),
+      }),
+    );
+
+    const resA = await request(app, '/account', {
+      headers: { cookie: makeSessionCookie(userA) },
+    });
+    expect(resA.text).toContain('users delete');
+
+    const resB = await request(app, '/account', {
+      headers: { cookie: makeSessionCookie(userB) },
+    });
+    expect(resB.text).not.toContain('users delete');
+    expect(resB.text).toContain('No pending actions in commit list.');
+  });
 });

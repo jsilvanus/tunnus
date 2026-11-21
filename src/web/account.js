@@ -211,7 +211,7 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
     }
     let mcp = null;
     if (acct.user.groups.includes('admin')) {
-      const state = await getDbMcpState(pool);
+      const state = await getDbMcpState(pool, acct.user.id);
       mcp = {
         fixedTimeRunning: isFixedTimeRunning(state),
         remainingMinutes: Math.ceil(getFixedTimeRemainingMs(state) / 60000),
@@ -316,7 +316,7 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
     if (!acct.user.groups.includes('admin')) {
       return void res.status(403).send('Forbidden: admin only');
     }
-    const state = await getDbMcpState(pool);
+    const state = await getDbMcpState(pool, acct.user.id);
     if (!state.listLocked) {
       return void res.redirect(
         302,

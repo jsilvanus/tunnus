@@ -8,28 +8,40 @@ import { audit } from '../audit.js';
  *   listLocked: boolean,
  *   commitList: StagedAction[],
  *   updatedAt: string,
- *   updatedBy: string | null,
+ *   userId: string | null,
  * }} DbMcpState
  */
 
 /**
  * @param {import('pg').Pool} pool
+ * @param {string | null | undefined} userId
  * @returns {Promise<DbMcpState>}
  */
-export async function getDbMcpState(pool) {
+export async function getDbMcpState(pool, userId) {
+  if (!userId) {
+    return {
+      fixedTimeUntil: null,
+      listLocked: false,
+      commitList: [],
+      updatedAt: new Date().toISOString(),
+      userId: null,
+    };
+  }
   const { rows } = await pool.query(
-    'SELECT fixed_time_until, list_locked, commit_list, updated_at, updated_by FROM mcp_state WHERE id = 1',
+    'SELECT fixed_time_until, list_locked, commit_list, updated_at FROM mcp_state WHERE user_id = $1',
+    [userId],
   );
   if (!rows[0]) {
     await pool.query(
-      "INSERT INTO mcp_state (id, fixed_time_until, list_locked, commit_list) VALUES (1, NULL, false, '[]'::jsonb) ON CONFLICT (id) DO NOTHING",
+      "INSERT INTO mcp_state (user_id, fixed_time_until, list_locked, commit_list) VALUES ($1, NULL, false, '[]'::jsonb) ON CONFLICT (user_id) DO NOTHING",
+      [userId],
     );
     return {
       fixedTimeUntil: null,
       listLocked: false,
       commitList: [],
       updatedAt: new Date().toISOString(),
-      updatedBy: null,
+      userId,
     };
   }
   const r = rows[0];
@@ -38,23 +50,25 @@ export async function getDbMcpState(pool) {
     listLocked: Boolean(r.list_locked),
     commitList: Array.isArray(r.commit_list) ? r.commit_list : [],
     updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
-    updatedBy: r.updated_by ?? null,
+    userId,
   };
 }
 
 /**
  * @param {import('pg').Pool} pool
- * @param {{ minutes?: number, userId?: string | null }} options
+ * @param {{ userId: string, minutes?: number }} options
  * @returns {Promise<DbMcpState>}
  */
-export async function setDbMcpFixedTime(pool, { minutes = 15, userId = null } = {}) {
+export async function setDbMcpFixedTime(pool, { userId, minutes = 15 }) {
+  if (!userId) throw new Error('userId is required');
   const until = minutes > 0 ? new Date(Date.now() + minutes * 60 * 1000).toISOString() : null;
   const { rows } = await pool.query(
-    `UPDATE mcp_state
-     SET fixed_time_until = $1, updated_at = now(), updated_by = $2
-     WHERE id = 1
-     RETURNING fixed_time_until, list_locked, commit_list, updated_at, updated_by`,
-    [until, userId],
+    `INSERT INTO mcp_state (user_id, fixed_time_until, list_locked, commit_list, updated_at)
+     VALUES ($1, $2, false, '[]'::jsonb, now())
+     ON CONFLICT (user_id) DO UPDATE
+     SET fixed_time_until = EXCLUDED.fixed_time_until, updated_at = now()
+     RETURNING fixed_time_until, list_locked, commit_list, updated_at`,
+    [userId, until],
   );
   const r = rows[0];
   return {
@@ -62,22 +76,24 @@ export async function setDbMcpFixedTime(pool, { minutes = 15, userId = null } = 
     listLocked: Boolean(r.list_locked),
     commitList: Array.isArray(r.commit_list) ? r.commit_list : [],
     updatedAt: new Date(r.updated_at).toISOString(),
-    updatedBy: r.updated_by ?? null,
+    userId,
   };
 }
 
 /**
  * @param {import('pg').Pool} pool
- * @param {{ locked: boolean, userId?: string | null }} options
+ * @param {{ userId: string, locked: boolean }} options
  * @returns {Promise<DbMcpState>}
  */
-export async function setDbMcpLock(pool, { locked, userId = null }) {
+export async function setDbMcpLock(pool, { userId, locked }) {
+  if (!userId) throw new Error('userId is required');
   const { rows } = await pool.query(
-    `UPDATE mcp_state
-     SET list_locked = $1, updated_at = now(), updated_by = $2
-     WHERE id = 1
-     RETURNING fixed_time_until, list_locked, commit_list, updated_at, updated_by`,
-    [Boolean(locked), userId],
+    `INSERT INTO mcp_state (user_id, fixed_time_until, list_locked, commit_list, updated_at)
+     VALUES ($1, NULL, $2, '[]'::jsonb, now())
+     ON CONFLICT (user_id) DO UPDATE
+     SET list_locked = EXCLUDED.list_locked, updated_at = now()
+     RETURNING fixed_time_until, list_locked, commit_list, updated_at`,
+    [userId, Boolean(locked)],
   );
   const r = rows[0];
   return {
@@ -85,33 +101,40 @@ export async function setDbMcpLock(pool, { locked, userId = null }) {
     listLocked: Boolean(r.list_locked),
     commitList: Array.isArray(r.commit_list) ? r.commit_list : [],
     updatedAt: new Date(r.updated_at).toISOString(),
-    updatedBy: r.updated_by ?? null,
+    userId,
   };
 }
 
 /**
- * Stage an action into the commit list.
+ * Stage an action into the user's commit list.
  * Atomic check: only appends if list_locked = false!
  * @param {import('pg').Pool} pool
  * @param {{
+ *   userId: string,
  *   action: Omit<StagedAction, 'id' | 'stagedAt'>,
- *   userId?: string | null,
+ *   actor?: { userId?: string, email?: string, label?: string } | null,
  * }} options
- * @returns {Promise<{ ok: true, staged: StagedAction } | { ok: false, reason: 'locked' }>}
+ * @returns {Promise<{ ok: true, staged: StagedAction } | { ok: false, reason: string }>}
  */
-export async function stageDbMcpAction(pool, { action, userId = null }) {
+export async function stageDbMcpAction(pool, { userId, action, actor = null }) {
+  if (!userId) return { ok: false, reason: 'missing_user' };
   const id = `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   /** @type {StagedAction} */
   const staged = {
     id,
     ...action,
     stagedAt: new Date().toISOString(),
+    stagedBy: actor ?? null,
   };
+  await pool.query(
+    "INSERT INTO mcp_state (user_id, fixed_time_until, list_locked, commit_list) VALUES ($1, NULL, false, '[]'::jsonb) ON CONFLICT (user_id) DO NOTHING",
+    [userId],
+  );
   const { rows } = await pool.query(
     `UPDATE mcp_state
-     SET commit_list = commit_list || $1::jsonb, updated_at = now(), updated_by = $2
-     WHERE id = 1 AND list_locked = false
-     RETURNING id`,
+     SET commit_list = commit_list || $1::jsonb, updated_at = now()
+     WHERE user_id = $2 AND list_locked = false
+     RETURNING user_id`,
     [JSON.stringify([staged]), userId],
   );
   if (rows.length === 0) {
@@ -122,40 +145,43 @@ export async function stageDbMcpAction(pool, { action, userId = null }) {
 
 /**
  * @param {import('pg').Pool} pool
- * @param {{ userId?: string | null }} options
+ * @param {{ userId: string }} options
  * @returns {Promise<void>}
  */
-export async function clearDbMcpCommitList(pool, { userId = null } = {}) {
+export async function clearDbMcpCommitList(pool, { userId }) {
+  if (!userId) return;
   await pool.query(
     `UPDATE mcp_state
-     SET commit_list = '[]'::jsonb, updated_at = now(), updated_by = $1
-     WHERE id = 1`,
+     SET commit_list = '[]'::jsonb, updated_at = now()
+     WHERE user_id = $1`,
     [userId],
   );
 }
 
 /**
- * Execute the staged commit list against the API.
+ * Execute the staged commit list against the API for a specific user.
  * Requires list_locked === true!
  * @param {import('pg').Pool} pool
  * @param {{
+ *   userId: string,
  *   callApi: (op: any, args: { params: Record<string, unknown>, body?: unknown }) => Promise<{ status: number, body: any }>,
  *   opsById: Map<string, any>,
- *   userId?: string | null,
  *   ip?: string | null,
  * }} options
  * @returns {Promise<{ ok: true, executed: any[] } | { ok: false, error: string, executed: any[] }>}
  */
-export async function executeDbMcpCommitList(pool, { callApi, opsById, userId = null, ip = null }) {
+export async function executeDbMcpCommitList(pool, { userId, callApi, opsById, ip = null }) {
+  if (!userId) return { ok: false, error: 'User is required to execute commit list', executed: [] };
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      'SELECT list_locked, commit_list FROM mcp_state WHERE id = 1 FOR UPDATE',
+      'SELECT list_locked, commit_list FROM mcp_state WHERE user_id = $1 FOR UPDATE',
+      [userId],
     );
     if (!rows[0]) {
       await client.query('ROLLBACK');
-      return { ok: false, error: 'MCP state not found', executed: [] };
+      return { ok: false, error: 'MCP state not found for user', executed: [] };
     }
     if (!rows[0].list_locked) {
       await client.query('ROLLBACK');
@@ -176,7 +202,7 @@ export async function executeDbMcpCommitList(pool, { callApi, opsById, userId = 
       const op = opsById.get(item.operationId);
       if (!op) {
         await client.query(
-          'UPDATE mcp_state SET commit_list = $1::jsonb, updated_at = now(), updated_by = $2 WHERE id = 1',
+          'UPDATE mcp_state SET commit_list = $1::jsonb, updated_at = now() WHERE user_id = $2',
           [JSON.stringify(remaining), userId],
         );
         await client.query('COMMIT');
@@ -198,7 +224,7 @@ export async function executeDbMcpCommitList(pool, { callApi, opsById, userId = 
         remaining.shift();
       } catch (err) {
         await client.query(
-          'UPDATE mcp_state SET commit_list = $1::jsonb, updated_at = now(), updated_by = $2 WHERE id = 1',
+          'UPDATE mcp_state SET commit_list = $1::jsonb, updated_at = now() WHERE user_id = $2',
           [JSON.stringify(remaining), userId],
         );
         await client.query('COMMIT');
@@ -212,7 +238,7 @@ export async function executeDbMcpCommitList(pool, { callApi, opsById, userId = 
     }
 
     await client.query(
-      "UPDATE mcp_state SET commit_list = '[]'::jsonb, updated_at = now(), updated_by = $1 WHERE id = 1",
+      "UPDATE mcp_state SET commit_list = '[]'::jsonb, updated_at = now() WHERE user_id = $1",
       [userId],
     );
     await client.query('COMMIT');

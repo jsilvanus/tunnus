@@ -13,6 +13,7 @@ import { homedir } from 'node:os';
  *   params: Record<string, unknown>,
  *   body: unknown,
  *   stagedAt: string,
+ *   stagedBy?: { userId?: string, email?: string, label?: string } | null,
  * }} StagedAction
  *
  * @typedef {{

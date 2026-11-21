@@ -29,7 +29,21 @@ function sendError(res, status, code, message) {
  * Express app serving the MCP endpoint at `POST /mcp` (stateless Streamable HTTP). Each request's
  * admin token (or OAuth JWT when `oauth` is configured) is passed to the admin API for that
  * request; nothing is stored. Other methods get 405.
- * @param {{ spec: any, url: string, fetch?: typeof globalThis.fetch, oauth?: McpOAuthOptions, statePath?: string, state?: import('../client/mcpState.js').McpState, stateStore?: any, issuer?: string, accountUrl?: string }} options
+ * @param {{
+ *   spec: any,
+ *   url: string,
+ *   fetch?: typeof globalThis.fetch,
+ *   oauth?: McpOAuthOptions,
+ *   statePath?: string,
+ *   state?: import('../client/mcpState.js').McpState,
+ *   stateStore?: any,
+ *   issuer?: string,
+ *   accountUrl?: string,
+ *   resolveTokenUser?: (token: string) => Promise<
+ *     | { ok: true, user: { id: string, email?: string }, token?: { label?: string }, label?: string }
+ *     | { ok: false, reason: string }
+ *   >,
+ * }} options
  */
 export function createMcpHttpApp({
   spec,
@@ -41,6 +55,7 @@ export function createMcpHttpApp({
   stateStore,
   issuer,
   accountUrl,
+  resolveTokenUser,
 }) {
   const app = express();
   app.disable('x-powered-by');
@@ -83,6 +98,22 @@ export function createMcpHttpApp({
     if (!token) return void sendUnauthorized(res);
 
     if (TOKEN.test(token)) {
+      if (resolveTokenUser) {
+        try {
+          const found = await resolveTokenUser(token);
+          if (!found.ok) return void sendUnauthorized(res, 'invalid_token');
+          res.locals.token = token;
+          res.locals.user = found.user;
+          res.locals.actor = {
+            userId: found.user.id,
+            email: found.user.email,
+            label: found.token?.label || found.label || 'token',
+          };
+          return void next();
+        } catch {
+          return void sendUnauthorized(res, 'invalid_token');
+        }
+      }
       res.locals.token = token;
       return void next();
     }
@@ -93,6 +124,11 @@ export function createMcpHttpApp({
       const verified = await oauth.verifyToken(token);
       if (!verified.ok) return void sendUnauthorized(res, 'invalid_token');
       res.locals.token = token;
+      res.locals.user = { id: verified.sub };
+      res.locals.actor = {
+        userId: verified.sub,
+        label: 'oauth',
+      };
       next();
     } catch {
       sendUnauthorized(res, 'invalid_token');
@@ -109,6 +145,8 @@ export function createMcpHttpApp({
       stateStore,
       issuer: issuer || url,
       accountUrl,
+      userId: res.locals.user?.id,
+      actor: res.locals.actor,
     });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,

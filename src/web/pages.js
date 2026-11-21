@@ -349,9 +349,13 @@ export function accountPage(ctx, p) {
             : '';
           const bodyStr = item.body ? JSON.stringify(item.body) : '';
           const details = [paramsStr, bodyStr].filter(Boolean).join(' ');
+          const actorLabel = item.stagedBy?.label || item.stagedBy?.email || item.stagedBy?.userId;
+          const actorInfo = actorLabel
+            ? `<br><small style="color:#888">By: ${esc(actorLabel)}</small>`
+            : '';
           return `<tr>
 <td>${idx + 1}</td>
-<td><strong>${esc(item.command || item.operationId)}</strong>${destBadge}<br><small style="color:#666">${esc(item.summary || '')}</small></td>
+<td><strong>${esc(item.command || item.operationId)}</strong>${destBadge}<br><small style="color:#666">${esc(item.summary || '')}</small>${actorInfo}</td>
 <td><code style="font-size:.75rem;word-break:break-all">${esc(details)}</code></td>
 </tr>`;
         })
