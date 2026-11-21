@@ -133,7 +133,9 @@ Design: [`production.md`](production.md).
 - [ ] Passkeys (WebAuthn), once a deployment's domain is final
 - [ ] Self-service email change with verification of the new address
 - [ ] Secondary email address: keep primary `email` as the username/claim, but send sign-in codes (and optionally inactivity warnings) to both primary and secondary addresses
-- [ ] Back-channel logout to clients
+- [ ] Back-channel logout to clients (OpenID Connect Back-Channel Logout 1.0):
+      Enable `features.backchannelLogout` in `oidc-provider` and register `backchannel_logout_uri` on clients (Vuorot, Tavaranpaikka, etc.).
+      Trigger back-channel logout when user rights/groups are removed, app access is revoked from `/account`, or a user is disabled / session terminated, so client applications can immediately destroy the user's active session rather than waiting for local cookie/token expiry.
 - [ ] User export for data-subject access requests
 
 ## Review follow-ups (2026-11-17)
