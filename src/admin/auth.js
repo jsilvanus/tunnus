@@ -39,6 +39,7 @@ export function createAdminAuth({
   }
 
   return async function adminAuth(req, res, next) {
+    if (/** @type {any} */ (req).admin) return void next();
     const ip = req.ip ?? null;
     const key = ip ?? 'unknown';
     try {

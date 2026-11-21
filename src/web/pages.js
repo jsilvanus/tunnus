@@ -20,7 +20,7 @@ export function layout({ config, locale }, title, body) {
   return `<!doctype html>
 <html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · ${esc(brand.name)}</title>
-<style>body{font:16px system-ui,sans-serif;max-width:24rem;margin:3rem auto;padding:0 1rem}
+<style>body{font:16px system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem}
 button{background:${esc(brand.color)};color:#fff;border:0;padding:.6rem 1rem;border-radius:.3rem;font:inherit;cursor:pointer}
 button.alt{background:#475569;color:#fff}
 button.secondary{background:none;color:inherit;text-decoration:underline;padding-left:0}
@@ -260,6 +260,14 @@ ${errorLine(error ?? '', ctx)}<button>${esc(t(locale, 'continue'))}</button></fo
  *   totpEnabled: boolean,
  *   freshEmail: boolean,
  *   csrf: string,
+ *   mcp?: {
+ *     fixedTimeRunning: boolean,
+ *     remainingMinutes: number,
+ *     listLocked: boolean,
+ *     commitList: any[],
+ *     notice?: string,
+ *     error?: string,
+ *   } | null,
  * }} p
  */
 export function accountPage(ctx, p) {
@@ -285,6 +293,140 @@ export function accountPage(ctx, p) {
   const groupsRow = p.groups.length
     ? `<tr><th>${esc(t(locale, 'account_groups'))}</th><td>${esc(p.groups.join(', '))}</td></tr>`
     : '';
+
+  let mcpSection = '';
+  if (p.mcp) {
+    const { mcp } = p;
+    const directBadge = mcp.fixedTimeRunning
+      ? `<span style="display:inline-block;padding:.2rem .4rem;border-radius:.25rem;font-size:.8rem;font-weight:600;background:#d4edda;color:#155724">${esc(t(locale, 'account_mcp_active'))} (${mcp.remainingMinutes} min)</span>`
+      : `<span style="display:inline-block;padding:.2rem .4rem;border-radius:.25rem;font-size:.8rem;font-weight:600;background:#fff3cd;color:#856404">${esc(t(locale, 'account_mcp_inactive'))}</span>`;
+
+    const directAction = mcp.fixedTimeRunning
+      ? `<form method="post" action="${esc(p.basePath)}/account/mcp/lease" style="display:inline">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<input type="hidden" name="action" value="cancel">
+<button class="alt" style="padding:.3rem .6rem;font-size:.85rem">${esc(t(locale, 'account_mcp_cancel_lease'))}</button>
+</form>`
+      : `<form method="post" action="${esc(p.basePath)}/account/mcp/lease" style="display:inline">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<input type="hidden" name="action" value="enable">
+<button style="padding:.3rem .6rem;font-size:.85rem">${esc(t(locale, 'account_mcp_enable_15m'))}</button>
+</form>`;
+
+    const lockBadge = mcp.listLocked
+      ? `<span style="display:inline-block;padding:.2rem .4rem;border-radius:.25rem;font-size:.8rem;font-weight:600;background:#fff3cd;color:#856404">🔒 ${esc(t(locale, 'account_mcp_locked'))}</span> <small style="display:block;color:#555;margin-top:.2rem">${esc(t(locale, 'account_mcp_locked_desc'))}</small>`
+      : `<span style="display:inline-block;padding:.2rem .4rem;border-radius:.25rem;font-size:.8rem;font-weight:600;background:#d4edda;color:#155724">🟢 ${esc(t(locale, 'account_mcp_unlocked'))}</span> <small style="display:block;color:#555;margin-top:.2rem">${esc(t(locale, 'account_mcp_unlocked_desc'))}</small>`;
+
+    const lockAction = mcp.listLocked
+      ? `<form method="post" action="${esc(p.basePath)}/account/mcp/lock" style="display:inline">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<input type="hidden" name="locked" value="false">
+<button class="alt" style="padding:.3rem .6rem;font-size:.85rem">${esc(t(locale, 'account_mcp_unlock_list'))}</button>
+</form>`
+      : `<form method="post" action="${esc(p.basePath)}/account/mcp/lock" style="display:inline">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<input type="hidden" name="locked" value="true">
+<button class="alt" style="padding:.3rem .6rem;font-size:.85rem">${esc(t(locale, 'account_mcp_lock_list'))}</button>
+</form>`;
+
+    let listContent;
+    if (mcp.commitList.length === 0) {
+      listContent = `<p style="color:#666;font-size:.9rem">${esc(t(locale, 'account_mcp_empty_list'))}</p>`;
+    } else {
+      const rows = mcp.commitList
+        .map((item, idx) => {
+          const isDestructive =
+            item.method === 'delete' ||
+            item.operationId === 'updateUser' ||
+            item.command?.includes('delete') ||
+            item.command?.includes('rotate') ||
+            item.command?.includes('retire');
+          const destBadge = isDestructive
+            ? ` <span style="display:inline-block;padding:.1rem .3rem;border-radius:.2rem;font-size:.7rem;font-weight:600;background:#f8d7da;color:#721c24">${esc(t(locale, 'account_mcp_destructive'))}</span>`
+            : '';
+          const paramsStr = Object.keys(item.params || {}).length
+            ? JSON.stringify(item.params)
+            : '';
+          const bodyStr = item.body ? JSON.stringify(item.body) : '';
+          const details = [paramsStr, bodyStr].filter(Boolean).join(' ');
+          return `<tr>
+<td>${idx + 1}</td>
+<td><strong>${esc(item.command || item.operationId)}</strong>${destBadge}<br><small style="color:#666">${esc(item.summary || '')}</small></td>
+<td><code style="font-size:.75rem;word-break:break-all">${esc(details)}</code></td>
+</tr>`;
+        })
+        .join('\n');
+
+      listContent = `<div style="overflow-x:auto;margin:1rem 0">
+<table style="width:100%;font-size:.85rem">
+<thead>
+<tr>
+<th>#</th>
+<th>${esc(t(locale, 'account_mcp_action'))}</th>
+<th>${esc(t(locale, 'account_mcp_details'))}</th>
+</tr>
+</thead>
+<tbody>
+${rows}
+</tbody>
+</table>
+</div>`;
+    }
+
+    let commitControls = '';
+    if (mcp.commitList.length > 0) {
+      if (mcp.listLocked) {
+        commitControls = `<div style="display:flex;gap:.5rem;margin-top:.8rem;align-items:center">
+<form method="post" action="${esc(p.basePath)}/account/mcp/commit">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<button style="padding:.5rem 1rem">${esc(t(locale, 'account_mcp_commit_actions'))} (${mcp.commitList.length})</button>
+</form>
+<form method="post" action="${esc(p.basePath)}/account/mcp/clear">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<button class="secondary" style="padding:.5rem">${esc(t(locale, 'account_mcp_clear_list'))}</button>
+</form>
+</div>`;
+      } else {
+        commitControls = `<div style="margin-top:.8rem">
+<p style="font-size:.85rem;color:#856404;background:#fff3cd;padding:.5rem;border-radius:.3rem">⚠️ ${esc(t(locale, 'account_mcp_lock_required_to_commit'))}</p>
+<div style="display:flex;gap:.5rem;align-items:center">
+<button disabled style="opacity:0.5;cursor:not-allowed;padding:.5rem 1rem">${esc(t(locale, 'account_mcp_commit_actions'))} (${mcp.commitList.length})</button>
+<form method="post" action="${esc(p.basePath)}/account/mcp/clear">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<button class="secondary" style="padding:.5rem">${esc(t(locale, 'account_mcp_clear_list'))}</button>
+</form>
+</div>
+</div>`;
+      }
+    }
+
+    const noticeBanner = mcp.notice
+      ? `<p style="color:#0f5132;background:#d1e7dd;padding:.5rem;border-radius:.3rem;font-size:.9rem">${esc(mcp.notice)}</p>`
+      : '';
+    const errorBanner = mcp.error
+      ? `<p style="color:#842029;background:#f8d7da;padding:.5rem;border-radius:.3rem;font-size:.9rem">${esc(mcp.error)}</p>`
+      : '';
+
+    mcpSection = `<div style="border:1px solid #ccc;border-radius:.4rem;padding:1rem;margin-top:1.5rem">
+<h3 style="margin-top:0">${esc(t(locale, 'account_mcp_title'))}</h3>
+${noticeBanner}
+${errorBanner}
+<div style="margin-bottom:1rem">
+<p style="margin:.3rem 0"><strong>${esc(t(locale, 'account_mcp_direct_window'))}:</strong> ${directBadge}</p>
+<div style="margin-top:.4rem">${directAction}</div>
+</div>
+<div style="margin-bottom:1rem">
+<p style="margin:.3rem 0"><strong>${esc(t(locale, 'account_mcp_staging_status'))}:</strong> ${lockBadge}</p>
+<div style="margin-top:.4rem">${lockAction}</div>
+</div>
+<div>
+<h4 style="margin:1rem 0 .5rem 0">${esc(t(locale, 'account_mcp_staging_status'))} (${mcp.commitList.length})</h4>
+${listContent}
+${commitControls}
+</div>
+</div>`;
+  }
+
   return layout(
     ctx,
     t(locale, 'account_title'),
@@ -294,6 +436,7 @@ export function accountPage(ctx, p) {
 <tr><th>${esc(t(locale, 'email'))}</th><td>${esc(p.email)}</td></tr>${groupsRow}
 <tr><th>${esc(t(locale, 'account_totp_title'))}</th><td>${esc(statusText)}</td></tr>
 </table>
+${mcpSection}
 <div class="actions" style="margin-top:1.5rem">
 ${totpAction}
 <form method="post" action="${esc(p.basePath)}/account/logout">

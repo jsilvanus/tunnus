@@ -16,8 +16,9 @@ import { homedir } from 'node:os';
  * }} StagedAction
  *
  * @typedef {{
- *   mode: 'disabled' | 'commit-list',
+ *   mode?: 'disabled' | 'commit-list',
  *   fixedTimeUntil: string | null,
+ *   listLocked?: boolean,
  *   commitList: StagedAction[],
  * }} McpState
  */
@@ -65,6 +66,7 @@ export function createDefaultState() {
   return {
     mode: 'disabled',
     fixedTimeUntil: null,
+    listLocked: false,
     commitList: [],
   };
 }
@@ -86,6 +88,7 @@ export function loadMcpState({ statePath, readFile = (p) => readFileSync(p, 'utf
     return {
       mode: parsed.mode === 'commit-list' ? 'commit-list' : 'disabled',
       fixedTimeUntil: typeof parsed.fixedTimeUntil === 'string' ? parsed.fixedTimeUntil : null,
+      listLocked: Boolean(parsed.listLocked),
       commitList: Array.isArray(parsed.commitList) ? parsed.commitList : [],
     };
   } catch {
@@ -165,11 +168,30 @@ export function disallowMutative(state) {
 
 /**
  * @param {McpState} state
+ * @returns {boolean}
+ */
+export function isListLocked(state) {
+  return Boolean(state.listLocked);
+}
+
+/**
+ * @param {McpState} state
+ * @param {boolean} locked
+ */
+export function setListLock(state, locked) {
+  state.listLocked = Boolean(locked);
+}
+
+/**
+ * @param {McpState} state
  * @param {Omit<StagedAction, 'id' | 'stagedAt'>} action
  * @param {number} [now]
  * @returns {StagedAction}
  */
 export function stageAction(state, action, now = Date.now()) {
+  if (state.listLocked) {
+    throw new Error('Commit list is locked against new entries');
+  }
   const counter = state.commitList.length + 1;
   const id = `c-${counter}-${Math.random().toString(36).slice(2, 7)}`;
   /** @type {StagedAction} */

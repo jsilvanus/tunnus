@@ -8,6 +8,8 @@ import { createProviderHolder } from './oidc/providerHolder.js';
 import { securityHeaders } from './web/security.js';
 import { createAdminRouter } from './admin/router.js';
 import { loadSpec, readSpecText } from './admin/spec.js';
+import { clientOperations } from './client/operations.js';
+import { createApiClient } from './client/http.js';
 import { createHealthRouter, PACKAGE_VERSION } from './health.js';
 import { createPrivacyRouter } from './web/privacy.js';
 import { createMailRelayRouter } from './web/mailRelay.js';
@@ -18,6 +20,13 @@ import { requestLog } from './web/requestLog.js';
 import { errorHandler } from './web/errorHandler.js';
 import { createMcpHttpApp } from './mcp/http.js';
 import { createMcpJwtVerifier } from './mcp/oauth.js';
+import {
+  clearDbMcpCommitList,
+  executeDbMcpCommitList,
+  getDbMcpState,
+  setDbMcpLock,
+  stageDbMcpAction,
+} from './mcp/dbState.js';
 import { loadJwks } from './oidc/keys.js';
 
 /**
@@ -53,8 +62,6 @@ export async function createApp({ config, pool, clients, mailer }, options = {})
   router.get('/', (_req, res) => {
     res.redirect(302, `${config.basePath}/account`);
   });
-  router.use(createAccountRouter({ config, pool, getProvider: () => holder.current, mailer }));
-  router.use(createMailRelayRouter({ pool, token: config.mailRelayToken, mailer }));
   const verifyOAuthToken = config.mcp?.oauthEnabled
     ? createMcpJwtVerifier({
         issuer: config.issuer,
@@ -73,14 +80,58 @@ export async function createApp({ config, pool, clients, mailer }, options = {})
   });
   router.use('/admin/api/v1', adminRouter);
 
+  const localFetch = createLocalAdminFetch(adminRouter, `${config.issuer}/admin/api/v1`);
+  const spec = loadSpec(readSpecText());
+  const operations = clientOperations(spec);
+  const opsById = new Map(operations.map((o) => [o.operationId, o]));
+
+  /**
+   * @param {any} op
+   * @param {any} args
+   * @param {any} user
+   */
+  const callAdminApi = async (op, args, user) => {
+    const client = createApiClient({
+      url: config.issuer,
+      fetch: localFetch,
+      admin: {
+        user,
+        tokenId: 'internal',
+        token: { label: 'web-account' },
+      },
+    });
+    return client.call(op, args);
+  };
+
+  router.use(
+    createAccountRouter({
+      config,
+      pool,
+      getProvider: () => holder.current,
+      mailer,
+      callAdminApi,
+      opsById,
+    }),
+  );
+  router.use(createMailRelayRouter({ pool, token: config.mailRelayToken, mailer }));
+
   if (config.mcp?.enabled && verifyOAuthToken) {
-    const spec = loadSpec(readSpecText());
-    const localFetch = createLocalAdminFetch(adminRouter, `${config.issuer}/admin/api/v1`);
+    const mcpDbStore = {
+      getState: () => getDbMcpState(pool),
+      stageAction: (/** @type {any} */ { action }) => stageDbMcpAction(pool, { action }),
+      clearCommitList: () => clearDbMcpCommitList(pool),
+      setLock: (/** @type {any} */ locked) => setDbMcpLock(pool, { locked }),
+      executeCommitList: (/** @type {any} */ { callApi }) =>
+        executeDbMcpCommitList(pool, { callApi, opsById }),
+    };
     router.use(
       createMcpHttpApp({
         spec,
         url: config.issuer,
         fetch: localFetch,
+        stateStore: mcpDbStore,
+        issuer: config.issuer,
+        accountUrl: `${config.issuer}/account`,
         oauth: {
           resourceUrl: config.mcp.resourceUrl,
           authorizationServerUrl: config.issuer,
@@ -139,6 +190,9 @@ export function createLocalAdminFetch(adminRouter, adminBaseUrl) {
     const socket = new PassThrough();
     Object.defineProperty(socket, 'remoteAddress', { value: '127.0.0.1' });
     const req = new http.IncomingMessage(/** @type {any} */ (socket));
+    if (/** @type {any} */ (init).admin) {
+      /** @type {any} */ (req).admin = /** @type {any} */ (init).admin;
+    }
     req.method = init.method ?? 'GET';
     req.url = relUrl || '/';
     req.headers = {

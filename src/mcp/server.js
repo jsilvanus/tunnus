@@ -25,11 +25,16 @@ export const SERVER_VERSION = JSON.parse(
   readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
 ).version;
 
-const INSTRUCTIONS =
-  'Tunnus admin API. Each tool is one operation of the admin API. Mutative actions are staged ' +
-  'into a commit list unless a 15-minute fixed-time window is active (enabled via tunnus CLI). ' +
-  'Staged actions can be executed on the CLI or via executeCommitList when the window is active. ' +
-  'Admin token management is not available here; it needs the tunnus CLI.';
+export function serverInstructions(accountUrl = '/account') {
+  return (
+    'Tunnus admin API. Each tool is one operation of the admin API. Mutative actions are staged ' +
+    'into a commit list unless a 15-minute fixed-time window is active. ' +
+    `Users can manage the 15-minute lease, lock/unlock the commit list, and review/execute staged actions at ${accountUrl} (or via CLI). ` +
+    'Admin token management is not available here; it needs the tunnus CLI.'
+  );
+}
+
+export const INSTRUCTIONS = serverInstructions();
 
 /**
  * @typedef {{
@@ -109,7 +114,7 @@ export const COMMIT_LIST_TOOLS = /** @type {McpTool[]} */ ([
     name: 'executeCommitList',
     title: 'Execute staged commit list',
     description:
-      'Execute all staged mutative actions against the admin API in order. Can only be executed by MCP if the 15-minute fixed-time window is active.',
+      'Execute all staged mutative actions against the admin API in order. Can only be executed by MCP if the 15-minute fixed-time window is active and the list is locked.',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -176,7 +181,10 @@ function errorResult(text) {
  *   spec: any,
  *   callApi: (op: ClientOperation, args: { params: Record<string, unknown>, body?: unknown }) => Promise<{ status: number, body: any }>,
  *   state?: import('../client/mcpState.js').McpState,
+ *   stateStore?: any,
  *   statePath?: string,
+ *   issuer?: string,
+ *   accountUrl?: string,
  *   loadState?: typeof loadMcpState,
  *   saveState?: typeof saveMcpState,
  *   readFile?: (path: string) => string,
@@ -188,7 +196,10 @@ export function createMcpServer({
   spec,
   callApi,
   state: memoryState,
+  stateStore,
   statePath,
+  issuer,
+  accountUrl,
   loadState = loadMcpState,
   saveState = saveMcpState,
   readFile,
@@ -200,22 +211,26 @@ export function createMcpServer({
   const operations = clientOperations(spec);
   const opsById = new Map(operations.map((o) => [o.operationId, o]));
 
-  const getState = () => {
+  const resolvedAccountUrl = accountUrl || (issuer ? `${issuer}/account` : '/account');
+
+  const getState = async () => {
+    if (stateStore) return await stateStore.getState();
     if (memoryState) return memoryState;
     const resolvedPath = statePath ?? resolveMcpStatePath();
     return loadState({ statePath: resolvedPath, readFile });
   };
 
   /** @param {import('../client/mcpState.js').McpState} s */
-  const persistState = (s) => {
-    if (memoryState) return;
+  const persistState = async (s) => {
+    if (stateStore || memoryState) return;
     const resolvedPath = statePath ?? resolveMcpStatePath();
     saveState({ statePath: resolvedPath, state: s, writeFile, mkdir });
   };
 
+  const instructions = serverInstructions(resolvedAccountUrl);
   const server = new Server(
     { name: SERVER_NAME, version: SERVER_VERSION },
-    { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
+    { capabilities: { tools: {} }, instructions },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -242,14 +257,15 @@ export function createMcpServer({
 
     // Handle commit-list specific tools
     if (tool.name === 'getCommitList') {
-      const state = getState();
+      const state = await getState();
       const remainingSeconds = Math.round(getFixedTimeRemainingMs(state) / 1000);
       const running = isFixedTimeRunning(state);
       const data = {
-        mode: state.mode,
+        mode: state.mode ?? (running ? 'direct' : 'commit-list'),
         fixedTimeRunning: running,
         fixedTimeUntil: state.fixedTimeUntil,
         remainingSeconds,
+        listLocked: Boolean(state.listLocked),
         commitList: state.commitList,
       };
       return {
@@ -259,9 +275,13 @@ export function createMcpServer({
     }
 
     if (tool.name === 'clearCommitList') {
-      const state = getState();
-      clearCommitList(state);
-      persistState(state);
+      if (stateStore?.clearCommitList) {
+        await stateStore.clearCommitList();
+      } else {
+        const state = await getState();
+        clearCommitList(state);
+        await persistState(state);
+      }
       return {
         content: [{ type: 'text', text: 'Commit list cleared.' }],
         structuredContent: { cleared: true },
@@ -269,11 +289,16 @@ export function createMcpServer({
     }
 
     if (tool.name === 'executeCommitList') {
-      const state = getState();
+      const state = await getState();
       if (!isFixedTimeRunning(state)) {
         return errorResult(
           'Commit list can only be executed by MCP when a fixed-time window is running. ' +
-            'Execute it on the CLI with "tunnus mcp commit" or activate a 15-minute window with "tunnus mcp allow 15m".',
+            `Execute it on the web interface at ${resolvedAccountUrl} (or CLI with "tunnus mcp commit"), or activate a 15-minute window at ${resolvedAccountUrl}.`,
+        );
+      }
+      if (!state.listLocked) {
+        return errorResult(
+          `The commit list must be locked before execution to prevent concurrent additions. Visit ${resolvedAccountUrl} to lock and review the list before execution.`,
         );
       }
       if (state.commitList.length === 0) {
@@ -282,13 +307,26 @@ export function createMcpServer({
           structuredContent: { executed: [] },
         };
       }
+      if (stateStore?.executeCommitList) {
+        const res = await stateStore.executeCommitList({ callApi, opsById });
+        if (!res.ok) {
+          return errorResult(res.error);
+        }
+        return {
+          content: [
+            { type: 'text', text: `Executed ${res.executed.length} action(s) from commit list.` },
+          ],
+          structuredContent: { executed: res.executed },
+        };
+      }
+
       /** @type {any[]} */
       const executed = [];
       while (state.commitList.length > 0) {
         const item = state.commitList[0];
         const op = opsById.get(item.operationId);
         if (!op) {
-          persistState(state);
+          await persistState(state);
           return errorResult(`Unknown operation in commit list: ${item.operationId}`);
         }
         try {
@@ -301,9 +339,9 @@ export function createMcpServer({
             body: res.body,
           });
           state.commitList.shift();
-          persistState(state);
+          await persistState(state);
         } catch (err) {
-          persistState(state);
+          await persistState(state);
           if (err instanceof ApiError) {
             return errorResult(
               `Failed executing ${item.command} (${item.id}):\n${describeApiError(err).join('\n')}`,
@@ -328,7 +366,7 @@ export function createMcpServer({
     const isMutative = tool.operation.method !== 'get';
 
     if (isMutative) {
-      const state = getState();
+      const state = await getState();
       if (isFixedTimeRunning(state)) {
         // Direct execution allowed by active fixed-time window
         try {
@@ -347,36 +385,57 @@ export function createMcpServer({
         }
       }
 
-      if (state.mode === 'commit-list') {
-        const staged = stageAction(state, {
-          operationId: tool.name,
-          command: tool.operation.command,
-          summary: tool.operation.summary,
-          method: tool.operation.method,
-          path: tool.operation.path,
-          params,
-          body: tool.operation.bodySchema ? body : undefined,
-        });
-        persistState(state);
-        const structured = {
-          staged: true,
-          id: staged.id,
-          operationId: tool.name,
-          command: tool.operation.command,
-          message:
-            `Action staged to commit list (${staged.id}): ${tool.operation.command}. ` +
-            'Run "tunnus mcp commit" on CLI to execute, or allow mutative actions for a fixed time.',
-        };
-        return {
-          content: [{ type: 'text', text: structured.message }],
-          structuredContent: structured,
-        };
+      if (state.mode === 'disabled') {
+        return errorResult(
+          `Mutative actions are currently disabled for MCP. Direct the user to ${resolvedAccountUrl} to enable a 15-minute direct window or allow staging (or run "tunnus mcp allow" on CLI).`,
+        );
       }
 
-      return errorResult(
-        'Mutative actions are currently disabled for MCP. ' +
-          'Run "tunnus mcp allow commit-list" or "tunnus mcp allow 15m" on the CLI to allow mutative actions.',
-      );
+      // Check if list is locked
+      if (state.listLocked) {
+        return errorResult(
+          `The commit list is currently locked against new entries (pending review or execution). Direct the user to ${resolvedAccountUrl} to unlock the list or execute current actions.`,
+        );
+      }
+
+      const actionPayload = {
+        operationId: tool.name,
+        command: tool.operation.command,
+        summary: tool.operation.summary,
+        method: tool.operation.method,
+        path: tool.operation.path,
+        params,
+        body: tool.operation.bodySchema ? body : undefined,
+      };
+
+      let stagedId;
+      if (stateStore?.stageAction) {
+        const res = await stateStore.stageAction({ action: actionPayload });
+        if (!res.ok) {
+          return errorResult(
+            `The commit list is currently locked against new entries. Direct the user to ${resolvedAccountUrl} to unlock the list.`,
+          );
+        }
+        stagedId = res.staged.id;
+      } else {
+        const staged = stageAction(state, actionPayload);
+        await persistState(state);
+        stagedId = staged.id;
+      }
+
+      const structured = {
+        staged: true,
+        id: stagedId,
+        operationId: tool.name,
+        command: tool.operation.command,
+        message:
+          `Action staged to commit list (${stagedId}): ${tool.operation.command}. ` +
+          `Direct the user to ${resolvedAccountUrl} to review and commit staged actions or enable a 15-minute direct execution window (or run "tunnus mcp commit" on CLI).`,
+      };
+      return {
+        content: [{ type: 'text', text: structured.message }],
+        structuredContent: structured,
+      };
     }
 
     // Read-only operation: execute immediately

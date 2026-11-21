@@ -351,6 +351,7 @@ describe('MCP server mutative action enforcement', () => {
     const state = {
       mode: /** @type {const} */ ('commit-list'),
       fixedTimeUntil: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      listLocked: true,
       commitList: [
         {
           id: 'c-1',
@@ -390,6 +391,39 @@ describe('MCP server mutative action enforcement', () => {
     expect(res.isError).toBeFalsy();
     expect(executedOps).toEqual(['createGroup', 'createUser']);
     expect(state.commitList).toHaveLength(0);
+  });
+
+  it('refuses to execute commit list via MCP when list is not locked', async () => {
+    const state = {
+      mode: /** @type {const} */ ('commit-list'),
+      fixedTimeUntil: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      listLocked: false,
+      commitList: [
+        {
+          id: 'c-1',
+          operationId: 'createGroup',
+          command: 'groups create',
+          summary: 'Create group',
+          method: 'post',
+          path: '/groups',
+          params: {},
+          body: { name: 'devs' },
+          stagedAt: new Date().toISOString(),
+        },
+      ],
+    };
+
+    const { client } = await connect({
+      spec,
+      state,
+      callApi: async () => ({ status: 201, body: {} }),
+    });
+
+    const res = await client.callTool({ name: 'executeCommitList', arguments: {} });
+    expect(res.isError).toBe(true);
+    expect(/** @type {any} */ (res).content[0].text).toContain(
+      'The commit list must be locked before execution',
+    );
   });
 
   it('clears commit list via clearCommitList tool', async () => {

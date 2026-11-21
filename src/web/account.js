@@ -16,6 +16,14 @@ import {
 } from '../totp.js';
 import { sendInBackground } from './interactions.js';
 import { accountCodePage, accountLoginPage, accountPage, accountTotpSetupPage } from './pages.js';
+import {
+  clearDbMcpCommitList,
+  executeDbMcpCommitList,
+  getDbMcpState,
+  setDbMcpFixedTime,
+  setDbMcpLock,
+} from '../mcp/dbState.js';
+import { getFixedTimeRemainingMs, isFixedTimeRunning } from '../client/mcpState.js';
 
 const FRESH_EMAIL_MS = 10 * 60 * 1000;
 const ACCOUNT_SESSION_MS = 60 * 60 * 1000;
@@ -101,9 +109,11 @@ function validCsrf(secret, sid, sent) {
  *   pool: import('pg').Pool,
  *   getProvider: () => any,
  *   mailer: import('../mail.js').Mailer,
+ *   callAdminApi?: (op: any, args: any, user: any) => Promise<any>,
+ *   opsById?: Map<string, any>,
  * }} deps
  */
-export function createAccountRouter({ config, pool, getProvider, mailer }) {
+export function createAccountRouter({ config, pool, getProvider, mailer, callAdminApi, opsById }) {
   const router = express.Router();
   const form = express.urlencoded({ extended: false });
   const cookiePath = `${config.basePath}/account`;
@@ -199,6 +209,18 @@ export function createAccountRouter({ config, pool, getProvider, mailer }) {
     if (!acct) {
       return void res.send(accountLoginPage(ctx, `${config.basePath}/account/login`));
     }
+    let mcp = null;
+    if (acct.user.groups.includes('admin')) {
+      const state = await getDbMcpState(pool);
+      mcp = {
+        fixedTimeRunning: isFixedTimeRunning(state),
+        remainingMinutes: Math.ceil(getFixedTimeRemainingMs(state) / 60000),
+        listLocked: Boolean(state.listLocked),
+        commitList: state.commitList,
+        notice: typeof req.query.mcp_notice === 'string' ? req.query.mcp_notice : undefined,
+        error: typeof req.query.mcp_error === 'string' ? req.query.mcp_error : undefined,
+      };
+    }
     res.send(
       accountPage(ctx, {
         basePath: config.basePath,
@@ -208,7 +230,122 @@ export function createAccountRouter({ config, pool, getProvider, mailer }) {
         totpEnabled: acct.totpEnabled,
         freshEmail: acct.freshEmail,
         csrf: acct.csrf,
+        mcp,
       }),
+    );
+  });
+
+  router.post('/account/mcp/lease', form, async (req, res) => {
+    const acct = await resolveAccount(req, res);
+    if (!acct) return void res.redirect(302, `${config.basePath}/account`);
+    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) {
+      return void res.status(403).send('Invalid CSRF token');
+    }
+    if (!acct.user.groups.includes('admin')) {
+      return void res.status(403).send('Forbidden: admin only');
+    }
+    const action = String(req.body.action ?? '');
+    if (action === 'enable') {
+      await setDbMcpFixedTime(pool, { minutes: 15, userId: acct.user.id });
+      await audit(pool, {
+        action: 'mcp.lease_enabled',
+        actorUserId: acct.user.id,
+        ip: req.ip ?? null,
+        details: { minutes: 15 },
+      });
+      return void res.redirect(
+        302,
+        `${config.basePath}/account?mcp_notice=15-minute lease enabled`,
+      );
+    }
+    if (action === 'cancel') {
+      await setDbMcpFixedTime(pool, { minutes: 0, userId: acct.user.id });
+      await audit(pool, {
+        action: 'mcp.lease_cancelled',
+        actorUserId: acct.user.id,
+        ip: req.ip ?? null,
+      });
+      return void res.redirect(302, `${config.basePath}/account?mcp_notice=Lease cancelled`);
+    }
+    res.redirect(302, `${config.basePath}/account`);
+  });
+
+  router.post('/account/mcp/lock', form, async (req, res) => {
+    const acct = await resolveAccount(req, res);
+    if (!acct) return void res.redirect(302, `${config.basePath}/account`);
+    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) {
+      return void res.status(403).send('Invalid CSRF token');
+    }
+    if (!acct.user.groups.includes('admin')) {
+      return void res.status(403).send('Forbidden: admin only');
+    }
+    const locked = req.body.locked === 'true';
+    await setDbMcpLock(pool, { locked, userId: acct.user.id });
+    await audit(pool, {
+      action: locked ? 'mcp.list_locked' : 'mcp.list_unlocked',
+      actorUserId: acct.user.id,
+      ip: req.ip ?? null,
+    });
+    res.redirect(302, `${config.basePath}/account`);
+  });
+
+  router.post('/account/mcp/clear', form, async (req, res) => {
+    const acct = await resolveAccount(req, res);
+    if (!acct) return void res.redirect(302, `${config.basePath}/account`);
+    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) {
+      return void res.status(403).send('Invalid CSRF token');
+    }
+    if (!acct.user.groups.includes('admin')) {
+      return void res.status(403).send('Forbidden: admin only');
+    }
+    await clearDbMcpCommitList(pool, { userId: acct.user.id });
+    await audit(pool, {
+      action: 'mcp.list_cleared',
+      actorUserId: acct.user.id,
+      ip: req.ip ?? null,
+    });
+    res.redirect(302, `${config.basePath}/account?mcp_notice=Commit list cleared`);
+  });
+
+  router.post('/account/mcp/commit', form, async (req, res) => {
+    const acct = await resolveAccount(req, res);
+    if (!acct) return void res.redirect(302, `${config.basePath}/account`);
+    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) {
+      return void res.status(403).send('Invalid CSRF token');
+    }
+    if (!acct.user.groups.includes('admin')) {
+      return void res.status(403).send('Forbidden: admin only');
+    }
+    const state = await getDbMcpState(pool);
+    if (!state.listLocked) {
+      return void res.redirect(
+        302,
+        `${config.basePath}/account?mcp_error=Commit list must be locked before execution`,
+      );
+    }
+    if (!callAdminApi || !opsById) {
+      return void res.redirect(
+        302,
+        `${config.basePath}/account?mcp_error=Admin API execution not available`,
+      );
+    }
+    const result = await executeDbMcpCommitList(pool, {
+      callApi: (op, args) => callAdminApi(op, args, acct.user),
+      opsById,
+      userId: acct.user.id,
+      ip: req.ip ?? null,
+    });
+    if (!result.ok) {
+      return void res.redirect(
+        302,
+        `${config.basePath}/account?mcp_error=${encodeURIComponent(result.error)}`,
+      );
+    }
+    res.redirect(
+      302,
+      `${config.basePath}/account?mcp_notice=${encodeURIComponent(
+        `Successfully executed ${result.executed.length} action(s).`,
+      )}`,
     );
   });
 

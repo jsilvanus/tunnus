@@ -37,9 +37,9 @@ export function describeApiError(err) {
 
 /**
  * HTTP client for the admin API at `<url>/admin/api/v1`. Holds no state besides the URL and token.
- * @param {{ url: string, token?: string, fetch?: typeof globalThis.fetch }} options
+ * @param {{ url: string, token?: string, fetch?: typeof globalThis.fetch, admin?: any }} options
  */
-export function createApiClient({ url, token, fetch = globalThis.fetch }) {
+export function createApiClient({ url, token, fetch = globalThis.fetch, admin }) {
   const base = `${url.replace(/\/+$/, '')}/admin/api/v1`;
   return {
     /**
@@ -80,6 +80,7 @@ export function createApiClient({ url, token, fetch = globalThis.fetch }) {
           method: op.method.toUpperCase(),
           headers,
           body: payload,
+          ...(admin ? { admin } : {}),
         });
       } catch (/** @type {any} */ err) {
         throw new ApiError(
