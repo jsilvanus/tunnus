@@ -12,7 +12,9 @@ import {
   buildOtpAuthUri,
   encryptTotpSecret,
   generateTotpSecret,
+  isTotpEligible,
   verifyTotpToken,
+  verifyUserTotp,
 } from '../totp.js';
 import { sendInBackground } from './interactions.js';
 import { accountCodePage, accountLoginPage, accountPage, accountTotpSetupPage } from './pages.js';
@@ -360,9 +362,18 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
         .send(accountLoginPage(ctx, `${config.basePath}/account/login`, 'invalid_email'));
     }
     const uid = `acct_${randomBytes(16).toString('base64url')}`;
-    const { rows } = await pool.query('SELECT id, status FROM users WHERE email = $1', [email]);
+    const { rows } = await pool.query(
+      `SELECT id, status, totp_secret_enc, totp_enabled_at, totp_locked_until, last_email_verified_at
+         FROM users
+        WHERE email = $1`,
+      [email],
+    );
     const user = rows[0];
-    if (user && user.status === 'active') {
+    const allowed = user ? user.status === 'active' : false;
+    const totpReady =
+      allowed && isTotpEligible(user, { reverifyDays: config.totpEmailReverifyDays });
+
+    if (allowed && !totpReady) {
       const issued = await issueCode(pool, {
         secret: config.keyEncryptionSecret,
         limits: config.limits,
@@ -396,7 +407,54 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
       }),
       600,
     );
-    res.send(accountCodePage(ctx, `${config.basePath}/account/login/code`));
+    res.send(
+      accountCodePage(ctx, `${config.basePath}/account/login/code`, undefined, {
+        resendAction: `${config.basePath}/account/login/resend`,
+      }),
+    );
+  });
+
+  router.post('/account/login/resend', form, async (req, res) => {
+    const ctx = ctxOf(req);
+    const cookies = parseCookies(String(req.headers.cookie ?? ''));
+    const chal = unseal(config.keyEncryptionSecret, 'account-challenge', cookies[COOKIE_CHALLENGE]);
+    if (!chal) {
+      return void res.redirect(303, `${config.basePath}/account`);
+    }
+    const { rows } = await pool.query('SELECT id, status FROM users WHERE email = $1', [
+      chal.email,
+    ]);
+    const user = rows[0];
+    if (user && user.status === 'active') {
+      const issued = await issueCode(pool, {
+        secret: config.keyEncryptionSecret,
+        limits: config.limits,
+        email: chal.email,
+        uid: chal.uid,
+        ip: req.ip ?? null,
+        purpose: 'login',
+      });
+      if (issued.ok) {
+        const link = `${config.issuer}/account`;
+        sendInBackground(pool, {
+          ip: req.ip ?? null,
+          kind: 'sign_in_code',
+          send: () => mailer.sendCode(chal.email, issued.code, link, ctx.locale),
+        });
+      } else {
+        await audit(pool, {
+          action: 'rate_limited',
+          ip: req.ip,
+          details: { reason: issued.reason },
+        });
+      }
+    }
+    res.send(
+      accountCodePage(ctx, `${config.basePath}/account/login/code`, undefined, {
+        resendAction: `${config.basePath}/account/login/resend`,
+        messageKey: 'code_sent',
+      }),
+    );
   });
 
   router.post('/account/login/code', form, async (req, res) => {
@@ -406,48 +464,104 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
     if (!chal) {
       return void res.redirect(303, `${config.basePath}/account`);
     }
-    const result = await verifyCode(
-      pool,
-      config.keyEncryptionSecret,
-      chal.uid,
-      String(req.body.code ?? ''),
-    );
-    if (!result.ok) {
-      await audit(pool, { action: 'code_failed', ip: req.ip, details: { locked: result.locked } });
-      return void res
-        .status(400)
-        .send(accountCodePage(ctx, `${config.basePath}/account/login/code`, 'invalid_code'));
-    }
-    const { rows } = await pool.query(
-      "SELECT id FROM users WHERE email = $1 AND status = 'active'",
-      [result.email],
-    );
-    const user = rows[0];
-    if (!user) return void res.redirect(303, `${config.basePath}/account`);
+    const code = String(req.body.code ?? '');
+    const result = await verifyCode(pool, config.keyEncryptionSecret, chal.uid, code);
+    if (result.ok) {
+      const { rows } = await pool.query(
+        "SELECT id FROM users WHERE email = $1 AND status = 'active'",
+        [result.email],
+      );
+      const user = rows[0];
+      if (!user) return void res.redirect(303, `${config.basePath}/account`);
 
-    const verified = await getVerified(pool, chal.uid);
-    if (verified) await consume(pool, verified.id);
-    await pool.query(
-      `UPDATE users
-          SET last_email_verified_at = now(),
-              totp_failed_attempts = 0,
-              totp_locked_until = NULL
-        WHERE id = $1`,
-      [user.id],
-    );
-    clearCookie(res, COOKIE_CHALLENGE);
-    const sid = randomBytes(16).toString('base64url');
-    setCookie(
-      res,
-      COOKIE_SESSION,
-      seal(config.keyEncryptionSecret, 'account-session', {
-        userId: user.id,
-        sid,
-        exp: Date.now() + ACCOUNT_SESSION_MS,
+      const verified = await getVerified(pool, chal.uid);
+      if (verified) await consume(pool, verified.id);
+      await pool.query(
+        `UPDATE users
+            SET last_email_verified_at = now(),
+                totp_failed_attempts = 0,
+                totp_locked_until = NULL
+          WHERE id = $1`,
+        [user.id],
+      );
+      clearCookie(res, COOKIE_CHALLENGE);
+      const sid = randomBytes(16).toString('base64url');
+      setCookie(
+        res,
+        COOKIE_SESSION,
+        seal(config.keyEncryptionSecret, 'account-session', {
+          userId: user.id,
+          sid,
+          exp: Date.now() + ACCOUNT_SESSION_MS,
+        }),
+        3600,
+      );
+      await audit(pool, {
+        actorUserId: user.id,
+        action: 'account_login',
+        targetType: 'user',
+        targetId: user.id,
+        ip: req.ip,
+      });
+      return void res.redirect(303, `${config.basePath}/account`);
+    }
+
+    if (chal.email) {
+      const totp = await verifyUserTotp(pool, {
+        secret: config.keyEncryptionSecret,
+        email: chal.email,
+        code,
+        reverifyDays: config.totpEmailReverifyDays,
+      });
+      if (totp.ok) {
+        await pool.query(
+          'UPDATE email_codes SET consumed_at = now() WHERE interaction_uid = $1 AND consumed_at IS NULL',
+          [chal.uid],
+        );
+        clearCookie(res, COOKIE_CHALLENGE);
+        const sid = randomBytes(16).toString('base64url');
+        setCookie(
+          res,
+          COOKIE_SESSION,
+          seal(config.keyEncryptionSecret, 'account-session', {
+            userId: totp.userId,
+            sid,
+            exp: Date.now() + ACCOUNT_SESSION_MS,
+          }),
+          3600,
+        );
+        await audit(pool, {
+          actorUserId: totp.userId,
+          action: 'account_login_totp',
+          targetType: 'user',
+          targetId: totp.userId,
+          ip: req.ip,
+        });
+        return void res.redirect(303, `${config.basePath}/account`);
+      }
+      if (totp.reason !== 'not_eligible') {
+        await audit(pool, {
+          actorUserId: totp.userId,
+          action: totp.locked ? 'totp_locked' : 'totp_failed',
+          targetType: 'user',
+          targetId: totp.userId,
+          ip: req.ip,
+          details: { reason: totp.reason },
+        });
+        return void res.status(400).send(
+          accountCodePage(ctx, `${config.basePath}/account/login/code`, 'invalid_code', {
+            resendAction: `${config.basePath}/account/login/resend`,
+          }),
+        );
+      }
+    }
+
+    await audit(pool, { action: 'code_failed', ip: req.ip, details: { locked: result.locked } });
+    return void res.status(400).send(
+      accountCodePage(ctx, `${config.basePath}/account/login/code`, 'invalid_code', {
+        resendAction: `${config.basePath}/account/login/resend`,
       }),
-      3600,
     );
-    res.redirect(303, `${config.basePath}/account`);
   });
 
   router.post('/account/verify', form, async (req, res) => {

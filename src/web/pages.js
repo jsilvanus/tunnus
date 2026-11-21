@@ -236,17 +236,22 @@ ${errorLine(error ?? '', ctx)}<button>${esc(t(locale, 'send_code'))}</button></f
  * @param {Ctx} ctx
  * @param {string} action
  * @param {string} [error]
+ * @param {{ resendAction?: string, messageKey?: string }} [opts]
  */
-export function accountCodePage(ctx, action, error) {
+export function accountCodePage(ctx, action, error, opts = {}) {
   const { locale } = ctx;
+  const message = t(locale, opts.messageKey ?? (opts.resendAction ? 'code_prompt' : 'code_sent'));
+  const resendForm = opts.resendAction
+    ? `\n<form method="post" action="${esc(opts.resendAction)}"><button class="secondary">${esc(t(locale, 'send_email_code'))}</button></form>`
+    : '';
   return layout(
     ctx,
     t(locale, 'account_title'),
     `<h2>${esc(t(locale, 'account_title'))}</h2>
-<p>${esc(t(locale, 'code_sent'))}</p>
+<p>${esc(message)}</p>
 <form method="post" action="${esc(action)}">
 <label>${esc(t(locale, 'code'))}<input name="code" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required autofocus></label>
-${errorLine(error ?? '', ctx)}<button>${esc(t(locale, 'continue'))}</button></form>`,
+${errorLine(error ?? '', ctx)}<button>${esc(t(locale, 'continue'))}</button></form>${resendForm}`,
   );
 }
 
@@ -290,8 +295,26 @@ export function accountPage(ctx, p) {
 <input type="hidden" name="csrf" value="${esc(p.csrf)}">
 <button>${esc(t(locale, 'account_totp_setup'))}</button></form>`;
   }
+  let groupsHtml = '';
+  if (p.groups.length > 0) {
+    const sorted = [...p.groups].sort((a, b) => a.localeCompare(b, locale));
+    if (sorted.length <= 5) {
+      groupsHtml = sorted.map((g) => `<div>${esc(g)}</div>`).join('');
+    } else {
+      const first5 = sorted
+        .slice(0, 5)
+        .map((g) => `<div>${esc(g)}</div>`)
+        .join('');
+      const rest = sorted
+        .slice(5)
+        .map((g) => `<div>${esc(g)}</div>`)
+        .join('');
+      const moreText = t(locale, 'account_groups_see_more', { count: String(sorted.length - 5) });
+      groupsHtml = `${first5}<details style="margin-top:.3rem"><summary style="cursor:pointer;color:#7e003e;font-size:.9rem">${esc(moreText)}</summary><div style="margin-top:.2rem">${rest}</div></details>`;
+    }
+  }
   const groupsRow = p.groups.length
-    ? `<tr><th>${esc(t(locale, 'account_groups'))}</th><td>${esc(p.groups.join(', '))}</td></tr>`
+    ? `<tr><th>${esc(t(locale, 'account_groups'))}</th><td>${groupsHtml}</td></tr>`
     : '';
 
   let mcpSection = '';
