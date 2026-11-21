@@ -282,8 +282,10 @@ export function loadConfig(env = process.env, io = {}) {
 /** @typedef {ReturnType<typeof loadConfig>} Config */
 
 /**
- * Load clients from a JSON file. String values of the form `${NAME}` are
- * replaced with the environment variable NAME.
+ * Load clients from a JSON file. String values of the form `${NAME}` or `${NAME:-default}`
+ * are replaced with the environment variable NAME or the given default.
+ * If a variable is unset and has no default fallback, an error is thrown.
+ * If any default fallback is used for a client, that client is marked as `disabled: true`.
  * @param {string} file
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {Record<string, any>[]}
@@ -292,17 +294,26 @@ export function loadClients(file, env = process.env) {
   if (!file) return [];
   const clients = JSON.parse(readFileSync(file, 'utf8'));
   if (!Array.isArray(clients)) throw new Error('CLIENTS_FILE must contain a JSON array');
-  return clients.map((c) =>
-    Object.fromEntries(
+  return clients.map((c) => {
+    let usedDefault = false;
+    const resolved = Object.fromEntries(
       Object.entries(c).map(([k, v]) => [
         k,
         typeof v === 'string'
-          ? v.replace(/\$\{([A-Z0-9_]+)\}/g, (_, n) => {
-              if (env[n] === undefined) throw new Error(`Client file references unset ${n}`);
-              return env[n];
+          ? v.replace(/\$\{([A-Z0-9_]+)(?::-([^}]*))?\}/g, (_, n, fallback) => {
+              if (env[n] !== undefined) return env[n];
+              if (fallback !== undefined) {
+                usedDefault = true;
+                return fallback;
+              }
+              throw new Error(`Client file references unset ${n}`);
             })
           : v,
       ]),
-    ),
-  );
+    );
+    if (usedDefault) {
+      resolved.disabled = true;
+    }
+    return resolved;
+  });
 }

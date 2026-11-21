@@ -41,14 +41,15 @@ export function createProvider({ config, pool, clients, jwks }) {
 
   const provider = new Provider(config.issuer, {
     adapter: createAdapterClass(pool),
-    clients: clients.map(({ client_id, always_include_groups, first_party, ...rest }) => ({
+    clients: clients.map(({ client_id, always_include_groups, first_party, disabled, ...rest }) => ({
       id_token_signed_response_alg: 'RS256',
       ...rest,
       client_id,
       always_include_groups: Boolean(always_include_groups),
       first_party: Boolean(first_party),
+      disabled: Boolean(disabled),
     })),
-    extraClientMetadata: { properties: ['first_party', 'always_include_groups'] },
+    extraClientMetadata: { properties: ['first_party', 'always_include_groups', 'disabled'] },
     jwks,
     cookies: { keys: config.cookieSecrets },
     findAccount: createFindAccount(pool),
@@ -176,5 +177,13 @@ export function createProvider({ config, pool, clients, jwks }) {
   provider.on('grant.success', recordActivity);
 
   if (config.trustProxy) provider.proxy = true;
+
+  const origFindClient = provider.Client.find.bind(provider.Client);
+  provider.Client.find = async (id) => {
+    const client = await origFindClient(id);
+    if (client?.disabled) return undefined;
+    return client;
+  };
+
   return provider;
 }

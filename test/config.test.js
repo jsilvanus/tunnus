@@ -156,3 +156,64 @@ describe('loadConfig secret validation', () => {
     ).toHaveLength(2);
   });
 });
+
+describe('loadClients', () => {
+  it('loads clients and interpolates env vars with or without defaults', async () => {
+    const { loadClients } = await import('../src/config.js');
+    const { writeFileSync, unlinkSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+
+    const tempPath = join(tmpdir(), `tunnus-clients-test-${Date.now()}.json`);
+    const clientsData = [
+      {
+        client_id: 'app1',
+        client_secret: '${APP1_SECRET}',
+      },
+      {
+        client_id: 'app2',
+        client_secret: '${APP2_SECRET:-default-secret}',
+      },
+      {
+        client_id: 'app3',
+        client_secret: '${APP3_SECRET:-fallback-secret}',
+      },
+    ];
+
+    writeFileSync(tempPath, JSON.stringify(clientsData), 'utf8');
+
+    try {
+      // APP1 is defined, APP3 is defined, APP2 is missing (uses default)
+      const env = {
+        APP1_SECRET: 'secret-one',
+        APP3_SECRET: 'secret-three',
+      };
+
+      const loaded = loadClients(tempPath, env);
+      expect(loaded).toHaveLength(3);
+
+      expect(loaded[0]).toEqual({
+        client_id: 'app1',
+        client_secret: 'secret-one',
+      });
+      expect(loaded[0].disabled).toBeUndefined();
+
+      expect(loaded[1]).toEqual({
+        client_id: 'app2',
+        client_secret: 'default-secret',
+        disabled: true,
+      });
+
+      expect(loaded[2]).toEqual({
+        client_id: 'app3',
+        client_secret: 'secret-three',
+      });
+      expect(loaded[2].disabled).toBeUndefined();
+
+      // Missing env without fallback throws
+      expect(() => loadClients(tempPath, {})).toThrow('Client file references unset APP1_SECRET');
+    } finally {
+      unlinkSync(tempPath);
+    }
+  });
+});
