@@ -6,7 +6,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { loadSpec } from '../src/admin/spec.js';
 import { createApiClient } from '../src/client/http.js';
 import { createMcpHttpApp } from '../src/mcp/http.js';
-import { createMcpServer, mcpTools } from '../src/mcp/server.js';
+import { createMcpServer } from '../src/mcp/server.js';
 import { ADMIN_EMAIL, startAdmin } from './helpers/admin.js';
 
 /** @type {Awaited<ReturnType<typeof startAdmin>>} */
@@ -18,7 +18,17 @@ let base = '';
 
 beforeAll(async () => {
   t = await startAdmin({ schema: 'mcp_it' });
-  httpServer = http.createServer(createMcpHttpApp({ spec, url: t.issuer }));
+  httpServer = http.createServer(
+    createMcpHttpApp({
+      spec,
+      url: t.issuer,
+      state: {
+        mode: 'commit-list',
+        fixedTimeUntil: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+        commitList: [],
+      },
+    }),
+  );
   await new Promise((resolve) => httpServer.listen(0, '127.0.0.1', () => resolve(undefined)));
   base = `http://127.0.0.1:${/** @type {any} */ (httpServer.address()).port}`;
 });
@@ -30,12 +40,18 @@ afterAll(async () => {
 /**
  * An SDK client connected to a server over an in-memory transport, backed by the real admin API.
  * @param {string} token
+ * @param {import('../src/client/mcpState.js').McpState} [state]
  */
-async function inMemoryClient(token) {
+async function inMemoryClient(token, state) {
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   const server = createMcpServer({
     spec,
     callApi: (op, args) => createApiClient({ url: t.issuer, token }).call(op, args),
+    state: state ?? {
+      mode: 'commit-list',
+      fixedTimeUntil: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      commitList: [],
+    },
   });
   await server.connect(serverSide);
   const client = new Client({ name: 'integration', version: '0.0.0' });
@@ -123,7 +139,25 @@ describe('MCP over the admin API, in memory', () => {
 
 /** @returns {string[]} */
 function tools() {
-  return mcpTools(spec).map((tool) => tool.name);
+  return [
+    'getMe',
+    'listAdminTokens',
+    'listUsers',
+    'createUser',
+    'getUser',
+    'updateUser',
+    'listUserGroups',
+    'listGroups',
+    'createGroup',
+    'getGroup',
+    'updateGroup',
+    'listGroupMembers',
+    'grantMembership',
+    'revokeMembership',
+    'listKeys',
+    'listAuditEvents',
+    'listClients',
+  ];
 }
 
 describe('MCP over Streamable HTTP', () => {
@@ -172,7 +206,8 @@ describe('MCP over Streamable HTTP', () => {
     await client.connect(transport);
     const listed = await client.listTools();
     expect(listed.tools.map((x) => x.name)).toContain('getMe');
-    expect(listed.tools.map((x) => x.name)).not.toContain('deleteUser');
+    expect(listed.tools.map((x) => x.name)).toContain('deleteUser');
+    expect(listed.tools.map((x) => x.name)).not.toContain('createAdminToken');
     const result = await client.callTool({ name: 'getMe', arguments: {} });
     expect(result.structuredContent).toMatchObject({ user: { email: ADMIN_EMAIL } });
     await client.close();
