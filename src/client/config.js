@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 
 /** Configuration problems: unreadable or invalid config file, bad URL, unreadable token file. */
 export class ConfigError extends Error {
@@ -33,11 +33,16 @@ export class ConfigError extends Error {
  * else `<home>/.config/tunnus/config.json`.
  * @param {Record<string, string | undefined>} env
  * @param {string | undefined} home
+ * @param {string} [platform]
  * @returns {string | undefined}
  */
-export function defaultConfigPath(env, home) {
-  if (env.XDG_CONFIG_HOME) return join(env.XDG_CONFIG_HOME, 'tunnus', 'config.json');
-  if (home) return join(home, '.config', 'tunnus', 'config.json');
+export function defaultConfigPath(env, home, platform = process.platform) {
+  const p =
+    platform === 'win32' && !(home?.startsWith('/') || env.XDG_CONFIG_HOME?.startsWith('/'))
+      ? join
+      : posix.join;
+  if (env.XDG_CONFIG_HOME) return p(env.XDG_CONFIG_HOME, 'tunnus', 'config.json');
+  if (home) return p(home, '.config', 'tunnus', 'config.json');
   return undefined;
 }
 
@@ -102,7 +107,7 @@ export function resolveConfig({ flags, env, home, platform = process.platform, r
   /** @type {string[]} */
   const warnings = [];
   const explicit = flags.config ?? env.TUNNUS_CONFIG;
-  const configPath = explicit || defaultConfigPath(env, home);
+  const configPath = explicit || defaultConfigPath(env, home, platform);
 
   /** @type {{ url?: string, token?: string }} */
   let file = {};

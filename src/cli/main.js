@@ -19,6 +19,7 @@ import {
   formatOverview,
   formatTable,
 } from './format.js';
+import { handleMcpCli } from './mcpCommands.js';
 
 /**
  * @typedef {{ write(text: string): unknown }} Writer
@@ -29,8 +30,11 @@ import {
  *   stdin?: NodeJS.ReadableStream,
  *   isTTY?: boolean,
  *   home?: string,
+ *   platform?: NodeJS.Platform,
  *   fetch?: typeof globalThis.fetch,
  *   readFile?: (path: string) => string,
+ *   writeFile?: (path: string, content: string) => void,
+ *   mkdir?: (path: string, options: { recursive: boolean }) => void,
  *   stat?: (path: string) => { mode: number },
  * }} CliIo
  * @typedef {import('../client/operations.js').ClientOperation} ClientOperation
@@ -129,6 +133,27 @@ async function run(argv, io) {
     err.write(formatOverview(operations));
     return 2;
   }
+  if (words[0] === 'mcp') {
+    const config = resolveConfig({
+      flags: {
+        url: typeof globals.url === 'string' ? globals.url : undefined,
+        config: typeof globals.config === 'string' ? globals.config : undefined,
+        tokenFile: typeof globals['token-file'] === 'string' ? globals['token-file'] : undefined,
+      },
+      env: io.env,
+      home: io.home ?? homedir(),
+      platform:
+        io.platform ??
+        (io.home?.startsWith('/') ||
+        String(globals.config || '').startsWith('/') ||
+        String(io.env.TUNNUS_CONFIG || '').startsWith('/')
+          ? 'linux'
+          : process.platform),
+      readFile: io.readFile,
+      stat: io.stat,
+    });
+    return await handleMcpCli(words.slice(1), rest.slice(1), globals, io, operations, config);
+  }
   const match = matchCommand(words, operations);
   if (!match) {
     if (globals.help) {
@@ -156,6 +181,13 @@ async function run(argv, io) {
     },
     env: io.env,
     home: io.home ?? homedir(),
+    platform:
+      io.platform ??
+      (io.home?.startsWith('/') ||
+      String(globals.config || '').startsWith('/') ||
+      String(io.env.TUNNUS_CONFIG || '').startsWith('/')
+        ? 'linux'
+        : process.platform),
     readFile: io.readFile,
     stat: io.stat,
   });

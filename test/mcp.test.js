@@ -20,7 +20,12 @@ const UUID = '6f1b1d0e-3c1e-4c7a-9a52-2f0f5a3c9b11';
  */
 async function connect(deps) {
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-  const server = createMcpServer(deps);
+  const state = deps.state ?? {
+    mode: 'commit-list',
+    fixedTimeUntil: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    commitList: [],
+  };
+  const server = createMcpServer({ ...deps, state });
   await server.connect(serverSide);
   const client = new Client({ name: 'test', version: '0.0.0' });
   await client.connect(clientSide);
@@ -28,7 +33,7 @@ async function connect(deps) {
 }
 
 describe('tool list', () => {
-  it('exposes every operation except destructive and mcp:false ones', () => {
+  it('exposes every operation except mcp:false ones, plus commit list tools', () => {
     expect(tools.map((t) => t.name).sort()).toEqual(
       [
         'getMe',
@@ -37,27 +42,32 @@ describe('tool list', () => {
         'createUser',
         'getUser',
         'updateUser',
+        'deleteUser',
+        'revokeUserSessions',
         'listUserGroups',
         'listGroups',
         'createGroup',
         'getGroup',
         'updateGroup',
+        'deleteGroup',
         'listGroupMembers',
         'grantMembership',
         'revokeMembership',
         'listKeys',
+        'rotateKeys',
+        'retireKey',
         'listAuditEvents',
         'listClients',
+        'getCommitList',
+        'executeCommitList',
+        'clearCommitList',
       ].sort(),
     );
     for (const name of [
-      'deleteUser',
-      'revokeUserSessions',
-      'deleteGroup',
-      'rotateKeys',
-      'retireKey',
       'createAdminToken',
       'revokeAdminToken',
+      'enableUserTotp',
+      'disableUserTotp',
     ]) {
       expect(
         tools.some((t) => t.name === name),
@@ -189,7 +199,7 @@ describe('tools over MCP', () => {
 
   it('rejects an unknown tool name with a protocol error', async () => {
     const { client } = await connect({ spec, callApi: async () => ({ status: 200, body: {} }) });
-    await expect(client.callTool({ name: 'deleteUser', arguments: {} })).rejects.toThrow(
+    await expect(client.callTool({ name: 'fakeNonExistentTool', arguments: {} })).rejects.toThrow(
       /Unknown tool/,
     );
   });

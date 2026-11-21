@@ -107,9 +107,12 @@ straight to the admin API. Put it behind TLS if it is reachable from elsewhere.
 tunnus-mcp --http
 ```
 
-Destructive operations (deleting users and groups, ending sessions, rotating
-and retiring keys) and admin token management are only available from the
-`tunnus` CLI, so they never reach an AI client.
+Mutative operations in MCP are guarded: by default they are disabled until the
+CLI allows them into a reviewable commit list (`tunnus mcp allow commit-list`) or
+for a 15-minute window (`tunnus mcp allow 15m`). Staged actions in the commit
+list can be executed from the CLI (`tunnus mcp commit`) or by MCP via
+`executeCommitList` while the 15-minute window is active. Admin token management
+remains CLI-only so sensitive tokens never enter an AI context.
 
 ## Licence
 

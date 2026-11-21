@@ -29,9 +29,9 @@ function sendError(res, status, code, message) {
  * Express app serving the MCP endpoint at `POST /mcp` (stateless Streamable HTTP). Each request's
  * admin token (or OAuth JWT when `oauth` is configured) is passed to the admin API for that
  * request; nothing is stored. Other methods get 405.
- * @param {{ spec: any, url: string, fetch?: typeof globalThis.fetch, oauth?: McpOAuthOptions }} options
+ * @param {{ spec: any, url: string, fetch?: typeof globalThis.fetch, oauth?: McpOAuthOptions, statePath?: string, state?: import('../client/mcpState.js').McpState }} options
  */
-export function createMcpHttpApp({ spec, url, fetch, oauth }) {
+export function createMcpHttpApp({ spec, url, fetch, oauth, statePath, state }) {
   const app = express();
   app.disable('x-powered-by');
 
@@ -91,7 +91,12 @@ export function createMcpHttpApp({ spec, url, fetch, oauth }) {
 
   app.post('/mcp', authenticate, express.json({ limit: '1mb' }), async (req, res) => {
     const client = createApiClient({ url, token: res.locals.token, fetch });
-    const server = createMcpServer({ spec, callApi: (op, args) => client.call(op, args) });
+    const server = createMcpServer({
+      spec,
+      callApi: (op, args) => client.call(op, args),
+      statePath,
+      state,
+    });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

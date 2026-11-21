@@ -65,9 +65,17 @@ describe('command generation', () => {
   });
 
   it('derives the MCP and destructive flags from the spec', () => {
-    expect(byCommand('users delete')).toMatchObject({ destructive: true, mcp: false });
+    expect(byCommand('users delete')).toMatchObject({
+      destructive: true,
+      mcp: true,
+      mutative: true,
+    });
     expect(byCommand('tokens create')).toMatchObject({ mcp: false, destructive: false });
-    expect(byCommand('users update')).toMatchObject({ destructive: false, mcp: true });
+    expect(byCommand('users update')).toMatchObject({
+      destructive: false,
+      mcp: true,
+      mutative: true,
+    });
     expect(byCommand('groups grant').paged).toBe(false);
     expect(byCommand('users list').paged).toBe(true);
   });

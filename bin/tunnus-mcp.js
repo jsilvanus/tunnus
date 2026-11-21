@@ -9,6 +9,7 @@ import { createApiClient } from '../src/client/http.js';
 import { createMcpHttpApp } from '../src/mcp/http.js';
 import { createMcpJwtVerifier } from '../src/mcp/oauth.js';
 import { createMcpServer } from '../src/mcp/server.js';
+import { resolveMcpStatePath } from '../src/client/mcpState.js';
 
 const USAGE = `Usage:
   tunnus-mcp [--url <url>] [--config <file>] [--token-file <file>] [--spec <file>]
@@ -117,7 +118,17 @@ async function main() {
     );
   }
   const client = createApiClient({ url: config.url, token: config.token });
-  const server = createMcpServer({ spec, callApi: (op, args) => client.call(op, args) });
+  const statePath = resolveMcpStatePath({
+    env,
+    configPath: config.configPath,
+    home: homedir(),
+  });
+  const server = createMcpServer({
+    spec,
+    callApi: (op, args) => client.call(op, args),
+    statePath,
+    readFile,
+  });
   await server.connect(new StdioServerTransport());
   return 0;
 }
