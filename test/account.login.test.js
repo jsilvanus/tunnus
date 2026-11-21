@@ -2,11 +2,23 @@ import { describe, expect, it } from 'vitest';
 import express from 'express';
 import http from 'node:http';
 import { once } from 'node:events';
+import { createHmac } from 'node:crypto';
 import { accountPage } from '../src/web/pages.js';
 import { createAccountRouter } from '../src/web/account.js';
+import { encryptWithKey, deriveSubkey } from '../src/oidc/keys.js';
 import { encryptTotpSecret, generateTotpSecret, totpCode } from '../src/totp.js';
 
 const KEY_SECRET = 'test-key-encryption-secret-01234567890123456789';
+
+function makeSessionCookie(/** @type {string} */ userId, sid = 'test-sid') {
+  const data = { userId, sid, exp: Date.now() + 60 * 60 * 1000 };
+  const sealed = encryptWithKey(JSON.stringify(data), deriveSubkey(KEY_SECRET, 'account-session'));
+  return `tunnus_account=${sealed}`;
+}
+
+function makeCsrf(sid = 'test-sid') {
+  return createHmac('sha256', deriveSubkey(KEY_SECRET, 'account-csrf')).update(sid).digest('hex');
+}
 
 /**
  * @param {any} app
@@ -83,6 +95,45 @@ describe('accountPage groups rendering', () => {
     );
     expect(html).toContain('<div style="margin-top:.2rem"><div>orange</div><div>zebra</div></div>');
   });
+
+  it('renders authorized apps list and handles empty list', () => {
+    const htmlEmpty = accountPage(ctx, {
+      basePath: '',
+      email: 'user@example.org',
+      displayName: 'User',
+      groups: [],
+      totpEnabled: false,
+      freshEmail: true,
+      csrf: 'csrf-1',
+      apps: [],
+    });
+    expect(htmlEmpty).toContain('Authorized applications');
+    expect(htmlEmpty).toContain('No authorized applications.');
+
+    const htmlWithApps = accountPage(ctx, {
+      basePath: '',
+      email: 'user@example.org',
+      displayName: 'User',
+      groups: [],
+      totpEnabled: false,
+      freshEmail: true,
+      csrf: 'csrf-1',
+      apps: [
+        {
+          clientId: 'chatgpt',
+          clientName: 'ChatGPT',
+          scopes: ['openid', 'email', 'profile'],
+        },
+      ],
+      appNotice: 'Access revoked for TestApp.',
+    });
+    expect(htmlWithApps).toContain('Authorized applications');
+    expect(htmlWithApps).toContain('ChatGPT');
+    expect(htmlWithApps).toContain('chatgpt');
+    expect(htmlWithApps).toContain('openid, email, profile');
+    expect(htmlWithApps).toContain('Revoke access');
+    expect(htmlWithApps).toContain('Access revoked for TestApp.');
+  });
 });
 
 describe('account login with TOTP support', () => {
@@ -92,6 +143,7 @@ describe('account login with TOTP support', () => {
     id: '00000000-0000-0000-0000-000000000001',
     email: 'totp-user@example.org',
     status: 'active',
+    groups: [],
     totp_secret_enc: secretEnc,
     totp_enabled_at: new Date(),
     totp_last_step: null,
@@ -100,15 +152,34 @@ describe('account login with TOTP support', () => {
     last_email_verified_at: new Date(),
   };
 
-  function setupApp({ user = userWithTotp } = {}) {
+  function setupApp({ user = userWithTotp, grants = /** @type {any[]} */ ([]) } = {}) {
     const app = express();
     /** @type {any[]} */
     const audits = [];
+    /** @type {any[]} */
+    const deletedPayloads = [];
     const pool = {
       query: async (/** @type {string} */ sql, /** @type {any[]} */ params) => {
+        if (sql.includes('totp_enabled_at, last_email_verified_at FROM users')) {
+          return {
+            rows: [
+              {
+                totp_enabled_at: user.totp_enabled_at,
+                last_email_verified_at: user.last_email_verified_at,
+              },
+            ],
+          };
+        }
         if (sql.includes('FROM users')) {
-          if (params?.[0] === user.email) return { rows: [user] };
+          if (params?.[0] === user.email || params?.[0] === user.id) return { rows: [user] };
           return { rows: [] };
+        }
+        if (sql.includes('DELETE FROM oidc_payloads')) {
+          deletedPayloads.push(params);
+          return { rows: [], rowCount: 1 };
+        }
+        if (sql.includes('FROM oidc_payloads')) {
+          return { rows: grants };
         }
         if (sql.includes('UPDATE users')) {
           return { rows: [] };
@@ -125,7 +196,7 @@ describe('account login with TOTP support', () => {
       connect: async () => ({
         query: async (/** @type {string} */ sql, /** @type {any[]} */ params) => {
           if (sql.includes('FROM users')) {
-            if (params?.[0] === user.email) return { rows: [user] };
+            if (params?.[0] === user.email || params?.[0] === user.id) return { rows: [user] };
             return { rows: [] };
           }
           if (sql.includes('UPDATE users')) {
@@ -140,11 +211,22 @@ describe('account login with TOTP support', () => {
       createAccountRouter({
         config: /** @type {any} */ (mockConfig),
         pool: /** @type {any} */ (pool),
-        getProvider: () => ({ createContext: () => ({}), Session: { get: async () => null } }),
+        getProvider: () => ({
+          createContext: () => ({}),
+          Session: { get: async () => null },
+          Client: {
+            find: async (/** @type {string} */ clientId) => {
+              if (clientId === 'chatgpt') return { clientName: 'ChatGPT', clientId: 'chatgpt' };
+              if (clientId === 'vuorot')
+                return { clientName: 'Vuorot', clientId: 'vuorot', first_party: true };
+              return null;
+            },
+          },
+        }),
         mailer: /** @type {any} */ ({ sendCode: async () => {} }),
       }),
     );
-    return { app, audits };
+    return { app, audits, deletedPayloads };
   }
 
   it('accepts TOTP code on /account/login/code for user with TOTP', async () => {
@@ -203,5 +285,62 @@ describe('account login with TOTP support', () => {
     expect(codeRes.status).toBe(400);
     expect(codeRes.text).toContain('That code is not valid.');
     expect(codeRes.text).toContain('/account/login/resend');
+  });
+
+  it('renders authorized apps on GET /account omitting internal first-party apps like Vuorot', async () => {
+    const grants = [
+      {
+        id: 'grant-1',
+        payload: {
+          clientId: 'chatgpt',
+          accountId: userWithTotp.id,
+          openid: { scope: 'openid mcp' },
+          iat: Math.floor(Date.now() / 1000),
+        },
+        expires_at: new Date(Date.now() + 100000),
+      },
+      {
+        id: 'grant-2',
+        payload: {
+          clientId: 'vuorot',
+          accountId: userWithTotp.id,
+          openid: { scope: 'openid email profile' },
+          iat: Math.floor(Date.now() / 1000),
+        },
+        expires_at: new Date(Date.now() + 100000),
+      },
+    ];
+    const { app } = setupApp({ grants });
+    const cookie = makeSessionCookie(userWithTotp.id);
+    const res = await request(app, '/account', { headers: { cookie } });
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Authorized applications');
+    expect(res.text).toContain('ChatGPT');
+    expect(res.text).toContain('MCP');
+    expect(res.text).toContain('openid, mcp');
+    expect(res.text).toContain('Revoke access');
+    // First-party app Vuorot should be omitted
+    expect(res.text).not.toContain('Vuorot');
+  });
+
+  it('revokes app access on POST /account/apps/revoke', async () => {
+    const { app, deletedPayloads, audits } = setupApp();
+    const cookie = makeSessionCookie(userWithTotp.id);
+    const csrf = makeCsrf();
+
+    const res = await request(app, '/account/apps/revoke', {
+      method: 'POST',
+      headers: {
+        cookie,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      body: `csrf=${csrf}&clientId=chatgpt`,
+    });
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toContain('app_notice=');
+    expect(deletedPayloads).toHaveLength(1);
+    expect(deletedPayloads[0]).toEqual([userWithTotp.id, 'chatgpt']);
+    expect(audits).toHaveLength(1);
   });
 });

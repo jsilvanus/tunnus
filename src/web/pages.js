@@ -265,6 +265,13 @@ ${errorLine(error ?? '', ctx)}<button>${esc(t(locale, 'continue'))}</button></fo
  *   totpEnabled: boolean,
  *   freshEmail: boolean,
  *   csrf: string,
+ *   apps?: Array<{
+ *     clientId: string,
+ *     clientName: string,
+ *     scopes: string[],
+ *     isMcp?: boolean,
+ *   }>,
+ *   appNotice?: string,
  *   mcp?: {
  *     fixedTimeRunning: boolean,
  *     remainingMinutes: number,
@@ -454,6 +461,61 @@ ${commitControls}
 </div>`;
   }
 
+  const apps = p.apps ?? [];
+  const appNoticeBanner = p.appNotice
+    ? `<p style="color:#0f5132;background:#d1e7dd;padding:.5rem;border-radius:.3rem;font-size:.9rem">${esc(p.appNotice)}</p>`
+    : '';
+
+  let appsContent;
+  if (apps.length === 0) {
+    appsContent = `<p style="color:#666;font-size:.9rem">${esc(t(locale, 'account_apps_none'))}</p>`;
+  } else {
+    const rows = apps
+      .map((app) => {
+        const idSubtitle =
+          app.clientName !== app.clientId
+            ? `<br><small style="color:#666">${esc(app.clientId)}</small>`
+            : '';
+        const scopesStr = app.scopes.length ? esc(app.scopes.join(', ')) : '—';
+        const mcpBadge = app.isMcp
+          ? ` <span style="display:inline-block;padding:.1rem .3rem;border-radius:.2rem;font-size:.7rem;font-weight:600;background:#e0f2fe;color:#0369a1">MCP</span>`
+          : '';
+        return `<tr>
+<td><strong>${esc(app.clientName)}</strong>${mcpBadge}${idSubtitle}</td>
+<td><small style="color:#555">${scopesStr}</small></td>
+<td style="text-align:right">
+<form method="post" action="${esc(p.basePath)}/account/apps/revoke" style="display:inline">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<input type="hidden" name="clientId" value="${esc(app.clientId)}">
+<button class="alt" style="padding:.3rem .6rem;font-size:.85rem">${esc(t(locale, 'account_apps_revoke'))}</button>
+</form>
+</td>
+</tr>`;
+      })
+      .join('\n');
+
+    appsContent = `<div style="overflow-x:auto">
+<table style="width:100%;font-size:.9rem">
+<thead>
+<tr>
+<th>${esc(t(locale, 'account_apps_app'))}</th>
+<th>${esc(t(locale, 'account_apps_permissions'))}</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+${rows}
+</tbody>
+</table>
+</div>`;
+  }
+
+  const appsSection = `<div style="border:1px solid #ccc;border-radius:.4rem;padding:1rem;margin-top:1.5rem">
+<h3 style="margin-top:0">${esc(t(locale, 'account_apps_title'))}</h3>
+${appNoticeBanner}
+${appsContent}
+</div>`;
+
   return layout(
     ctx,
     t(locale, 'account_title'),
@@ -463,6 +525,7 @@ ${commitControls}
 <tr><th>${esc(t(locale, 'email'))}</th><td>${esc(p.email)}</td></tr>${groupsRow}
 <tr><th>${esc(t(locale, 'account_totp_title'))}</th><td>${esc(statusText)}</td></tr>
 </table>
+${appsSection}
 ${mcpSection}
 <div class="actions" style="margin-top:1.5rem">
 ${totpAction}

@@ -4,7 +4,7 @@ import { loadUser } from '../accounts.js';
 import { audit } from '../audit.js';
 import { consume, getVerified, issueCode, verifyCode } from '../codes.js';
 import { isValidEmail } from '../emailAddress.js';
-import { pickLocale } from '../i18n.js';
+import { pickLocale, t } from '../i18n.js';
 import { decryptWithKey, deriveSubkey, encryptWithKey } from '../oidc/keys.js';
 import { qrDataUrl } from '../qr.js';
 import {
@@ -223,6 +223,64 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
         error: typeof req.query.mcp_error === 'string' ? req.query.mcp_error : undefined,
       };
     }
+
+    const { rows: grantRows } = await pool.query(
+      `SELECT id, payload, expires_at
+         FROM oidc_payloads
+        WHERE type = 'Grant'
+          AND payload->>'accountId' = $1
+          AND (expires_at IS NULL OR expires_at > now())
+        ORDER BY (payload->>'iat')::bigint DESC NULLS LAST, id DESC`,
+      [acct.user.id],
+    );
+
+    const appsMap = new Map();
+    const provider = getProvider ? getProvider() : null;
+    for (const row of grantRows) {
+      const clientId = row.payload?.clientId;
+      if (!clientId) continue;
+      if (!appsMap.has(clientId)) {
+        appsMap.set(clientId, {
+          clientId,
+          clientName: clientId,
+          scopes: new Set(),
+        });
+      }
+      const item = appsMap.get(clientId);
+      if (row.payload.openid?.scope) {
+        for (const s of String(row.payload.openid.scope).split(' ')) {
+          if (s) item.scopes.add(s);
+        }
+      }
+    }
+
+    /** @type {Array<{ clientId: string, clientName: string, scopes: string[], isMcp: boolean }>} */
+    const apps = [];
+    for (const [clientId, item] of appsMap) {
+      let isFirstParty = false;
+      if (provider?.Client) {
+        try {
+          const client = await provider.Client.find(clientId);
+          if (client) {
+            item.clientName = client.clientName || client.client_name || clientId;
+            isFirstParty = Boolean(client.first_party);
+          }
+        } catch {
+          // ignore
+        }
+      }
+      const hasMcp = item.scopes.has('mcp');
+      // Show external/third-party apps (e.g. ChatGPT, MCP clients); omit internal SSO first-party apps (e.g. Vuorot)
+      if (hasMcp || !isFirstParty) {
+        apps.push({
+          clientId: item.clientId,
+          clientName: item.clientName,
+          scopes: Array.from(item.scopes),
+          isMcp: hasMcp,
+        });
+      }
+    }
+
     res.send(
       accountPage(ctx, {
         basePath: config.basePath,
@@ -232,9 +290,58 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
         totpEnabled: acct.totpEnabled,
         freshEmail: acct.freshEmail,
         csrf: acct.csrf,
+        apps,
+        appNotice: typeof req.query.app_notice === 'string' ? req.query.app_notice : undefined,
         mcp,
       }),
     );
+  });
+
+  router.post('/account/apps/revoke', form, async (req, res) => {
+    const acct = await resolveAccount(req, res);
+    if (!acct) return void res.redirect(302, `${config.basePath}/account`);
+    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) {
+      return void res.status(403).send('Invalid CSRF token');
+    }
+    const clientId = String(req.body.clientId ?? '').trim();
+    if (!clientId) {
+      return void res.redirect(302, `${config.basePath}/account`);
+    }
+
+    let clientName = clientId;
+    try {
+      const provider = getProvider ? getProvider() : null;
+      if (provider?.Client) {
+        const client = await provider.Client.find(clientId);
+        if (client) {
+          clientName = client.clientName || client.client_name || clientId;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    await pool.query(
+      `DELETE FROM oidc_payloads
+        WHERE (type = 'Grant' AND payload->>'accountId' = $1 AND payload->>'clientId' = $2)
+           OR grant_id IN (
+                SELECT id FROM oidc_payloads
+                 WHERE type = 'Grant' AND payload->>'accountId' = $1 AND payload->>'clientId' = $2
+              )`,
+      [acct.user.id, clientId],
+    );
+
+    await audit(pool, {
+      actorUserId: acct.user.id,
+      action: 'account_app_revoked',
+      targetType: 'client',
+      targetId: clientId,
+      ip: req.ip ?? null,
+    });
+
+    const ctx = ctxOf(req);
+    const notice = t(ctx.locale, 'account_apps_revoked_notice', { client: clientName });
+    res.redirect(302, `${config.basePath}/account?app_notice=${encodeURIComponent(notice)}`);
   });
 
   router.post('/account/mcp/lease', form, async (req, res) => {
