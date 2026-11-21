@@ -41,14 +41,16 @@ export function createProvider({ config, pool, clients, jwks }) {
 
   const provider = new Provider(config.issuer, {
     adapter: createAdapterClass(pool),
-    clients: clients.map(({ client_id, always_include_groups, first_party, disabled, ...rest }) => ({
-      id_token_signed_response_alg: 'RS256',
-      ...rest,
-      client_id,
-      always_include_groups: Boolean(always_include_groups),
-      first_party: Boolean(first_party),
-      disabled: Boolean(disabled),
-    })),
+    clients: clients.map(
+      ({ client_id, always_include_groups, first_party, disabled, ...rest }) => ({
+        id_token_signed_response_alg: 'RS256',
+        ...rest,
+        client_id,
+        always_include_groups: Boolean(always_include_groups),
+        first_party: Boolean(first_party),
+        disabled: Boolean(disabled),
+      }),
+    ),
     extraClientMetadata: { properties: ['first_party', 'always_include_groups', 'disabled'] },
     jwks,
     cookies: { keys: config.cookieSecrets },
