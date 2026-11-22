@@ -1,5 +1,6 @@
 import { createPrivateKey, randomUUID, sign } from 'node:crypto';
 import { getActiveKey } from './keys.js';
+import { revokeUserSessions } from '../accounts.js';
 import { audit } from '../audit.js';
 import { errorFields, logger } from '../logger.js';
 
@@ -134,3 +135,66 @@ export async function dispatchBackchannelLogout({
     return { dispatched: false, error: /** @type {any} */ (err)?.name || 'Error' };
   }
 }
+
+/**
+ * Dispatch backchannel logout and MCP revocation to ALL clients where the user has active grants,
+ * sessions, or tokens, then revoke all sessions and admin tokens.
+ * @param {{
+ *   config: import('../config.js').Config,
+ *   pool: import('pg').Pool,
+ *   getProvider?: () => any | any,
+ *   userId: string,
+ *   events?: Record<string, any>,
+ *   reason?: string,
+ * }} params
+ * @returns {Promise<{ clientIds: string[], count: number }>}
+ */
+export async function dispatchAllBackchannelLogouts({
+  config,
+  pool,
+  getProvider,
+  userId,
+  events,
+  reason = 'account_disabled',
+}) {
+  const { rows } = await pool.query(
+    `SELECT DISTINCT payload->>'clientId' AS client_id
+       FROM oidc_payloads
+      WHERE payload->>'accountId' = $1 AND (expires_at IS NULL OR expires_at > now())`,
+    [userId],
+  );
+
+  const clientIds = rows.map((r) => r.client_id).filter(Boolean);
+
+  if (getProvider) {
+    for (const clientId of clientIds) {
+      try {
+        await dispatchBackchannelLogout({
+          config,
+          pool,
+          getProvider,
+          userId,
+          clientId,
+          events: events || {
+            'http://schemas.openid.net/event/backchannel-logout': {},
+            'https://tunnus.fi/event/mcp-revoke': { reason },
+          },
+        });
+      } catch (err) {
+        logger.warn(
+          { err: errorFields(err), clientId, userId },
+          'failed to dispatch backchannel logout in broadcast',
+        );
+      }
+    }
+  }
+
+  const revokedCount = await revokeUserSessions(pool, userId);
+  await pool.query(
+    'UPDATE admin_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL',
+    [userId],
+  );
+
+  return { clientIds, count: revokedCount };
+}
+

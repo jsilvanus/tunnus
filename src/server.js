@@ -23,7 +23,14 @@ const { app, holder, metrics } = await createApp({
   mailer,
 });
 holder.start();
-const cleanup = startCleanupScheduler({ config, pool, mailer, logger, metrics });
+const cleanup = startCleanupScheduler({
+  config,
+  pool,
+  mailer,
+  logger,
+  metrics,
+  getProvider: () => holder.provider,
+});
 const server = app.listen(config.port, () =>
   logger.info({ issuer: config.issuer, port: config.port }, 'tunnus listening'),
 );

@@ -714,11 +714,16 @@ components:
         id: { type: string, format: uuid, description: The OIDC `sub` }
         email: { $ref: '#/components/schemas/Email' }
         display_name: { type: string }
+        title: { type: string, nullable: true }
+        phone_number: { type: string, nullable: true }
         status: { $ref: '#/components/schemas/UserStatus' }
         is_admin: { type: boolean }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         last_login_at: { $ref: '#/components/schemas/NullableTimestamp' }
         last_email_verified_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        activates_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        disables_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        disabled_at: { $ref: '#/components/schemas/NullableTimestamp' }
         totp_enabled: { type: boolean }
         groups:
           type: array
@@ -742,6 +747,10 @@ components:
         display_name:
           $ref: '#/components/schemas/DisplayName'
           description: Defaults to a name derived from the email local part
+        title: { type: string, maxLength: 200 }
+        phone_number: { type: string, maxLength: 100 }
+        activates_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        disables_at: { $ref: '#/components/schemas/NullableTimestamp' }
         is_admin: { type: boolean, default: false }
 
     UserUpdate:
@@ -751,7 +760,11 @@ components:
       properties:
         email: { $ref: '#/components/schemas/Email' }
         display_name: { $ref: '#/components/schemas/DisplayName' }
+        title: { type: string, maxLength: 200, nullable: true }
+        phone_number: { type: string, maxLength: 100, nullable: true }
         status: { $ref: '#/components/schemas/UserStatus' }
+        activates_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        disables_at: { $ref: '#/components/schemas/NullableTimestamp' }
         is_admin: { type: boolean }
 
     RevokeResult:

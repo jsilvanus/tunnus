@@ -1,4 +1,5 @@
 import { deleteUserAccount } from '../accounts.js';
+import { dispatchAllBackchannelLogouts } from '../oidc/backchannel.js';
 import { audit } from '../audit.js';
 
 /**
@@ -225,6 +226,118 @@ export async function deleteInactiveUsers({ pool, config, now }) {
 }
 
 /**
+ * Automatically disable active accounts whose disables_at timestamp has passed.
+ * Broadcasts backchannel logout and revokes all sessions and admin tokens.
+ * @param {{
+ *   pool: import('pg').Pool,
+ *   config: import('../config.js').Config,
+ *   getProvider?: () => any | any,
+ *   logger: Logger,
+ *   now: Date,
+ * }} deps
+ * @returns {Promise<number>} number of disabled accounts
+ */
+export async function autoDisableExpiredUsers({ pool, config, getProvider, logger, now }) {
+  const { rows } = await pool.query(
+    `SELECT id FROM users
+      WHERE status = 'active'
+        AND disables_at IS NOT NULL
+        AND disables_at <= $1
+      ORDER BY id
+      LIMIT $2`,
+    [now, BATCH_SIZE],
+  );
+
+  let disabled = 0;
+  for (const row of rows) {
+    const updated = await inTransaction(pool, async (client) => {
+      const { rowCount } = await client.query(
+        `UPDATE users
+            SET status = 'disabled',
+                disabled_at = $1
+          WHERE id = $2 AND status = 'active'`,
+        [now, row.id],
+      );
+      return (rowCount ?? 0) > 0;
+    });
+
+    if (updated) {
+      disabled++;
+      try {
+        await dispatchAllBackchannelLogouts({
+          config,
+          pool,
+          getProvider,
+          userId: row.id,
+          reason: 'auto_disabled',
+        });
+      } catch (err) {
+        logger.warn(
+          { err: errorMessage(err), userId: row.id },
+          'failed to broadcast backchannel logout on auto-disable',
+        );
+      }
+      await audit(pool, {
+        action: 'user.auto_disabled',
+        targetType: 'user',
+        targetId: row.id,
+      });
+    }
+  }
+  return disabled;
+}
+
+/**
+ * Automatically activate disabled accounts whose scheduled activation time has arrived
+ * and whose automatic disabling time has not passed.
+ * @param {{
+ *   pool: import('pg').Pool,
+ *   logger: Logger,
+ *   now: Date,
+ * }} deps
+ * @returns {Promise<number>} number of activated accounts
+ */
+export async function autoActivateScheduledUsers({ pool, logger, now }) {
+  const { rows } = await pool.query(
+    `SELECT id FROM users
+      WHERE status = 'disabled'
+        AND activates_at IS NOT NULL
+        AND activates_at <= $1
+        AND (disables_at IS NULL OR disables_at > $1)
+      ORDER BY id
+      LIMIT $2`,
+    [now, BATCH_SIZE],
+  );
+
+  let activated = 0;
+  for (const row of rows) {
+    const updated = await inTransaction(pool, async (client) => {
+      const { rowCount } = await client.query(
+        `UPDATE users
+            SET status = 'active',
+                disabled_at = NULL
+          WHERE id = $1 AND status = 'disabled'`,
+        [row.id],
+      );
+      return (rowCount ?? 0) > 0;
+    });
+
+    if (updated) {
+      activated++;
+      await audit(pool, {
+        action: 'user.auto_activated',
+        targetType: 'user',
+        targetId: row.id,
+      });
+    }
+  }
+  if (activated > 0) {
+    logger?.info?.({ activated }, 'automatically activated scheduled accounts');
+  }
+  return activated;
+}
+
+/**
  * @template T
  * @param {import('pg').Pool} pool
  * @param {(client: import('pg').PoolClient) => Promise<T>} fn
@@ -290,11 +403,20 @@ async function releaseLock(client) {
  *   mailer: import('../mail.js').Mailer,
  *   logger: Logger,
  *   metrics?: { setCleanupSuccess(date: Date): void },
+ *   getProvider?: () => any | any,
  *   now?: Date,
  * }} deps
  * @returns {Promise<CleanupResult | { skipped: true }>}
  */
-export async function runCleanup({ pool, config, mailer, logger, metrics, now = new Date() }) {
+export async function runCleanup({
+  pool,
+  config,
+  mailer,
+  logger,
+  metrics,
+  getProvider,
+  now = new Date(),
+}) {
   const lock = await acquireLock(pool);
   if (!lock) {
     logger.debug({}, 'cleanup skipped: another run holds the lock');
@@ -321,6 +443,12 @@ export async function runCleanup({ pool, config, mailer, logger, metrics, now = 
   };
 
   try {
+    const autoDisabled = await task('auto_disabled', 0, () =>
+      autoDisableExpiredUsers({ pool, config, getProvider, logger, now }),
+    );
+    const autoActivated = await task('auto_activated', 0, () =>
+      autoActivateScheduledUsers({ pool, config, logger, now }),
+    );
     const payloads = await task('payloads', 0, () => deleteExpiredPayloads(pool, now));
     const codes = await task('codes', 0, () => deleteExpiredCodes(pool, now));
     const auditIpsCleared = await task('audit_ips', 0, () =>
@@ -338,6 +466,8 @@ export async function runCleanup({ pool, config, mailer, logger, metrics, now = 
 
     /** @type {CleanupResult} */
     const result = {
+      autoDisabled,
+      autoActivated,
       payloads,
       codes,
       auditIpsCleared,

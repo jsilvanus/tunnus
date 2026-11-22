@@ -3,10 +3,12 @@ import {
   deleteUserAccount,
   revokeUserSessions as revokeSessionRows,
 } from '../../accounts.js';
+import { dispatchAllBackchannelLogouts } from '../../oidc/backchannel.js';
 import { buildOtpAuthUri, encryptTotpSecret, generateTotpSecret } from '../../totp.js';
 import { AdminError } from '../errors.js';
 import { page } from '../paging.js';
 import { userJson, USER_GROUP_BY, USER_SELECT } from '../serialize.js';
+import { errorFields, logger } from '../../logger.js';
 import {
   conflict,
   cursorField,
@@ -124,7 +126,15 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async createUser(ctx) {
-    const { email, display_name: displayName, is_admin: isAdmin } = ctx.body;
+    const {
+      email,
+      display_name: displayName,
+      title,
+      phone_number: phoneNumber,
+      activates_at: activatesAt,
+      disables_at: disablesAt,
+      is_admin: isAdmin,
+    } = ctx.body;
     let id;
     try {
       id = await inTransaction(ctx.pool, async (client) => {
@@ -134,7 +144,30 @@ export const handlers = {
           ctx.config.defaultGroups,
           displayName,
         );
-        if (isAdmin) await client.query('UPDATE users SET is_admin = true WHERE id = $1', [newId]);
+        const updates = [];
+        const params = [newId];
+        if (isAdmin) {
+          updates.push('is_admin = true');
+        }
+        if (title !== undefined) {
+          params.push(title ? title.trim() : null);
+          updates.push(`title = $${params.length}`);
+        }
+        if (phoneNumber !== undefined) {
+          params.push(phoneNumber ? phoneNumber.trim() : null);
+          updates.push(`phone_number = $${params.length}`);
+        }
+        if (activatesAt !== undefined) {
+          params.push(activatesAt ? new Date(activatesAt) : null);
+          updates.push(`activates_at = $${params.length}`);
+        }
+        if (disablesAt !== undefined) {
+          params.push(disablesAt ? new Date(disablesAt) : null);
+          updates.push(`disables_at = $${params.length}`);
+        }
+        if (updates.length > 0) {
+          await client.query(`UPDATE users SET ${updates.join(', ')} WHERE id = $1`, params);
+        }
         return newId;
       });
     } catch (err) {
@@ -176,12 +209,24 @@ export const handlers = {
       ]);
     }
 
+    const titleVal = body.title === undefined ? null : (body.title ? body.title.trim() : null);
+    const phoneVal =
+      body.phone_number === undefined ? null : (body.phone_number ? body.phone_number.trim() : null);
+    const activatesVal =
+      body.activates_at === undefined
+        ? null
+        : (body.activates_at ? new Date(body.activates_at) : null);
+    const disablesVal =
+      body.disables_at === undefined
+        ? null
+        : (body.disables_at ? new Date(body.disables_at) : null);
+
     let result;
     try {
       result = await inTransaction(ctx.pool, async (client) => {
         const activeAdmins = await lockActiveAdmins(client);
         const { rows } = await client.query(
-          'SELECT email, display_name, status, is_admin FROM users WHERE id = $1 FOR UPDATE',
+          'SELECT email, display_name, title, phone_number, activates_at, disables_at, status, is_admin FROM users WHERE id = $1 FOR UPDATE',
           [userId],
         );
         const before = rows[0];
@@ -198,9 +243,28 @@ export const handlers = {
               SET email = COALESCE($2, email),
                   display_name = COALESCE($3, display_name),
                   status = COALESCE($4, status),
-                  is_admin = COALESCE($5, is_admin)
+                  is_admin = COALESCE($5, is_admin),
+                  title = CASE WHEN $6::boolean THEN $7 ELSE title END,
+                  phone_number = CASE WHEN $8::boolean THEN $9 ELSE phone_number END,
+                  activates_at = CASE WHEN $10::boolean THEN $11 ELSE activates_at END,
+                  disables_at = CASE WHEN $12::boolean THEN $13 ELSE disables_at END,
+                  disabled_at = CASE WHEN $4 = 'disabled' THEN now() WHEN $4 = 'active' THEN NULL ELSE disabled_at END
             WHERE id = $1`,
-          [userId, email, displayName, body.status ?? null, body.is_admin ?? null],
+          [
+            userId,
+            email,
+            displayName,
+            body.status ?? null,
+            body.is_admin ?? null,
+            body.title !== undefined,
+            titleVal,
+            body.phone_number !== undefined,
+            phoneVal,
+            body.activates_at !== undefined,
+            activatesVal,
+            body.disables_at !== undefined,
+            disablesVal,
+          ],
         );
         if (body.status === 'disabled') {
           await revokeSessionRows(client, userId);
@@ -212,6 +276,11 @@ export const handlers = {
         if (email !== null && email !== before.email) fields.push('email');
         if (displayName !== null && displayName !== before.display_name)
           fields.push('display_name');
+        if (body.title !== undefined && titleVal !== before.title) fields.push('title');
+        if (body.phone_number !== undefined && phoneVal !== before.phone_number)
+          fields.push('phone_number');
+        if (body.activates_at !== undefined) fields.push('activates_at');
+        if (body.disables_at !== undefined) fields.push('disables_at');
         if (body.status !== undefined && body.status !== before.status) fields.push('status');
         if (body.is_admin !== undefined && body.is_admin !== before.is_admin)
           fields.push('is_admin');
@@ -226,6 +295,22 @@ export const handlers = {
     } catch (err) {
       throw mapEmailConflict(err);
     }
+
+    if (body.status === 'disabled' && ctx.getProvider) {
+      void dispatchAllBackchannelLogouts({
+        config: ctx.config,
+        pool: ctx.pool,
+        getProvider: ctx.getProvider,
+        userId,
+        reason: 'admin_disabled',
+      }).catch((err) => {
+        logger.warn(
+          { err: errorFields(err), userId },
+          'dispatchAllBackchannelLogouts failed on admin disable',
+        );
+      });
+    }
+
     return {
       body: userJson(result.row),
       audit: { targetType: 'user', targetId: userId, details: result.details },

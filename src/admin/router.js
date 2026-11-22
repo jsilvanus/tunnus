@@ -17,6 +17,7 @@ const INTERNAL = errorBody('internal', 'Internal error');
  *   pool: import('pg').Pool,
  *   clients: Record<string, any>[],
  *   reloadKeys: () => Promise<void>,
+ *   getProvider?: () => any | any,
  *   validateResponses?: boolean,
  *   verifyOAuthToken?: (token: string) => Promise<{ ok: true, sub: string } | { ok: false, reason: string }>,
  * }} deps
@@ -27,6 +28,7 @@ export function createAdminRouter({
   pool,
   clients,
   reloadKeys,
+  getProvider,
   validateResponses = config.adminValidateResponses,
   verifyOAuthToken,
 }) {
@@ -147,6 +149,7 @@ export function createAdminRouter({
           query,
           body: requestBody,
           reloadKeys,
+          getProvider,
         })) ?? {};
       status = result.status ?? 200;
       body = status === 204 ? undefined : result.body;

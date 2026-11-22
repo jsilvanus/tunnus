@@ -14,10 +14,11 @@ const MAX_JITTER_MS = 60_000;
  *   mailer: import('../mail.js').Mailer,
  *   logger: import('./cleanup.js').Logger,
  *   metrics?: { setCleanupSuccess(date: Date): void },
+ *   getProvider?: () => any | any,
  * }} deps
  * @returns {{ stop(): Promise<void> }} stop() clears the timers; the promise settles when a run in progress has finished
  */
-export function startCleanupScheduler({ config, pool, mailer, logger, metrics }) {
+export function startCleanupScheduler({ config, pool, mailer, logger, metrics, getProvider }) {
   if (config.cleanup.disabled) {
     logger.info({}, 'cleanup scheduler disabled (CLEANUP_DISABLED=true)');
     return { stop: () => Promise.resolve() };
@@ -35,7 +36,7 @@ export function startCleanupScheduler({ config, pool, mailer, logger, metrics })
       logger.warn({}, 'cleanup still running, skipping this tick');
       return;
     }
-    inFlight = runCleanup({ pool, config, mailer, logger, metrics })
+    inFlight = runCleanup({ pool, config, mailer, logger, metrics, getProvider })
       .then(
         () => undefined,
         (err) => {

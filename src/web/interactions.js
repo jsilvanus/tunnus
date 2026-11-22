@@ -1,6 +1,6 @@
 import express from 'express';
 import { audit } from '../audit.js';
-import { createUser, findUserByEmail, loadUser } from '../accounts.js';
+import { createUser, findUserByEmail, isAccountActive, loadUser } from '../accounts.js';
 import { consume, getVerified, issueCode, verifyCode, verifyLink } from '../codes.js';
 import { displayNameFromEmail } from '../displayName.js';
 import { isValidEmail } from '../emailAddress.js';
@@ -127,7 +127,7 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
    */
   async function afterVerified(req, res, uid, email) {
     const user = await findUserByEmail(pool, email);
-    if (user && user.status === 'active') {
+    if (user && isAccountActive(user)) {
       const verified = await getVerified(pool, uid);
       if (verified) await consume(pool, verified.id);
       await deleteLoginChallenge(pool, uid);
@@ -180,7 +180,7 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
         .includes('login');
       if (d.session?.accountId && !forceLogin) {
         const user = await loadUser(pool, d.session.accountId);
-        if (user && user.status === 'active') {
+        if (user && isAccountActive(user)) {
           return void res.send(
             continuePage(ctx, {
               continueAction: `${base(d.uid)}/continue`,
@@ -208,7 +208,7 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
     if (!d?.session?.accountId) return expired(req, res);
     // Disabling a user ends its sessions, but a session that outlived the change must not sign in.
     const user = await loadUser(pool, d.session.accountId);
-    if (!user || user.status !== 'active') return expired(req, res);
+    if (!user || !isAccountActive(user)) return expired(req, res);
     await finishLogin(req, res, user.id, 'signin_continue');
   });
 
@@ -263,7 +263,7 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
 
     await saveLoginChallenge(pool, d.uid, email);
     const user = await findUserByEmail(pool, email);
-    const allowed = user ? user.status === 'active' : canSignUp(email);
+    const allowed = user ? isAccountActive(user) : canSignUp(email);
     const totpReady =
       allowed && isTotpEligible(user, { reverifyDays: config.totpEmailReverifyDays });
     // The response is the same whether or not a code is sent, to avoid account enumeration.
@@ -282,7 +282,7 @@ export function createInteractionRouter({ config, pool, getProvider, mailer }) {
     if (!email) return expired(req, res);
     const ctx = ctxOf(req);
     const user = await findUserByEmail(pool, email);
-    const allowed = user ? user.status === 'active' : canSignUp(email);
+    const allowed = user ? isAccountActive(user) : canSignUp(email);
     if (allowed) {
       await issueAndSendEmailCode(req, d.uid, email, user ? 'login' : 'signup', ctx.locale);
     }

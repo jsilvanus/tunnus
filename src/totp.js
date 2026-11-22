@@ -175,11 +175,11 @@ export function decryptTotpSecret(encrypted, keyEncryptionSecret) {
  *   totp_locked_until?: string | Date | null,
  *   last_email_verified_at?: string | Date | null,
  * } | null | undefined} user
- * @param {{ reverifyDays: number, nowMs?: number }} opts
+ * @param {{ reverifyDays: number, allowInactive?: boolean, nowMs?: number }} opts
  * @returns {boolean}
  */
-export function isTotpEligible(user, { reverifyDays, nowMs = Date.now() }) {
-  if (!user || user.status !== 'active') return false;
+export function isTotpEligible(user, { reverifyDays, allowInactive = false, nowMs = Date.now() }) {
+  if (!user || (!allowInactive && user.status !== 'active')) return false;
   if (!user.totp_enabled_at || !user.totp_secret_enc) return false;
   if (user.totp_locked_until && new Date(user.totp_locked_until).getTime() > nowMs) return false;
   if (reverifyDays > 0) {
@@ -193,7 +193,7 @@ export function isTotpEligible(user, { reverifyDays, nowMs = Date.now() }) {
 /**
  * Verify a user's TOTP code atomically, updating replay step and lockout counters.
  * @param {import('pg').Pool} pool
- * @param {{ secret: string, email: string, code: string, reverifyDays: number, nowMs?: number }} p
+ * @param {{ secret: string, email: string, code: string, reverifyDays: number, allowInactive?: boolean, nowMs?: number }} p
  * @returns {Promise<
  *   | { ok: true, userId: string }
  *   | { ok: false, reason: 'not_eligible' }
@@ -202,7 +202,7 @@ export function isTotpEligible(user, { reverifyDays, nowMs = Date.now() }) {
  */
 export async function verifyUserTotp(
   pool,
-  { secret, email, code, reverifyDays, nowMs = Date.now() },
+  { secret, email, code, reverifyDays, allowInactive = false, nowMs = Date.now() },
 ) {
   const client = await pool.connect();
   try {
@@ -216,7 +216,7 @@ export async function verifyUserTotp(
       [email.trim().toLowerCase()],
     );
     const user = rows[0];
-    if (!isTotpEligible(user, { reverifyDays, nowMs })) {
+    if (!isTotpEligible(user, { reverifyDays, allowInactive, nowMs })) {
       await client.query('ROLLBACK');
       return { ok: false, reason: 'not_eligible' };
     }

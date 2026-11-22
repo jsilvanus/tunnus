@@ -521,17 +521,45 @@ ${appNoticeBanner}
 ${appsContent}
 </div>`;
 
+  const statusBadge =
+    p.isActive !== false
+      ? `<span style="display:inline-block;padding:.2rem .4rem;border-radius:.25rem;font-size:.8rem;font-weight:600;background:#d4edda;color:#155724">${esc(t(locale, 'account_status_active'))}</span>`
+      : `<span style="display:inline-block;padding:.2rem .4rem;border-radius:.25rem;font-size:.8rem;font-weight:600;background:#fff3cd;color:#856404">${esc(t(locale, 'account_status_inactive'))}</span>`;
+
+  const titleRow = `<tr><th>${esc(t(locale, 'title'))}</th><td>${esc(p.title || '—')}</td></tr>`;
+  const phoneRow = `<tr><th>${esc(t(locale, 'phone_number'))}</th><td>${esc(p.phoneNumber || '—')}</td></tr>`;
+  const statusRow = `<tr><th>${esc(t(locale, 'account_status'))}</th><td>${statusBadge}</td></tr>`;
+
+  let lifecycleRows = '';
+  if (p.activatesAt) {
+    lifecycleRows += `<tr><th>${esc(t(locale, 'account_activates_at'))}</th><td>${esc(new Date(p.activatesAt).toLocaleString(locale))}</td></tr>`;
+  }
+  if (p.disablesAt) {
+    lifecycleRows += `<tr><th>${esc(t(locale, 'account_disables_at'))}</th><td>${esc(new Date(p.disablesAt).toLocaleString(locale))}</td></tr>`;
+  }
+
+  const inactiveNotice =
+    p.isActive === false
+      ? `<div style="background:#fff3cd;color:#856404;border:1px solid #ffeeba;padding:.8rem 1rem;border-radius:.4rem;margin:1rem 0">${esc(t(locale, 'account_inactive_notice'))}</div>`
+      : '';
+
   return layout(
     ctx,
     t(locale, 'account_title'),
     `<h2>${esc(t(locale, 'account_title'))}</h2>
+${inactiveNotice}
 <table>
 <tr><th>${esc(t(locale, 'name'))}</th><td>${esc(p.displayName)}</td></tr>
-<tr><th>${esc(t(locale, 'email'))}</th><td>${esc(p.email)}</td></tr>${groupsRow}
+<tr><th>${esc(t(locale, 'email'))}</th><td>${esc(p.email)}</td></tr>
+${titleRow}
+${phoneRow}
+${statusRow}
+${lifecycleRows}
+${groupsRow}
 <tr><th>${esc(t(locale, 'account_totp_title'))}</th><td>${esc(statusText)}</td></tr>
 </table>
-${appsSection}
-${mcpSection}
+${p.isActive !== false ? appsSection : ''}
+${p.isActive !== false ? mcpSection : ''}
 <div class="actions" style="margin-top:1.5rem">
 ${totpAction}
 <form method="post" action="${esc(p.basePath)}/account/logout">

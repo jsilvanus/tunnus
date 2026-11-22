@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import express from 'express';
-import { loadUser } from '../accounts.js';
+import { isAccountActive, loadUser } from '../accounts.js';
 import { audit } from '../audit.js';
 import { consume, getVerified, issueCode, verifyCode } from '../codes.js';
 import { isValidEmail } from '../emailAddress.js';
@@ -182,7 +182,7 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
     if (!userId || !sid) return null;
 
     const user = await loadUser(pool, userId);
-    if (!user || user.status !== 'active') return null;
+    if (!user) return null;
 
     const { rows } = await pool.query(
       'SELECT totp_enabled_at, last_email_verified_at FROM users WHERE id = $1',
@@ -302,6 +302,12 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
         basePath: config.basePath,
         email: acct.user.email,
         displayName: acct.user.display_name || acct.user.email,
+        title: acct.user.title || null,
+        phoneNumber: acct.user.phone_number || null,
+        status: acct.user.status,
+        isActive: isAccountActive(acct.user),
+        activatesAt: acct.user.activates_at || null,
+        disablesAt: acct.user.disables_at || null,
         groups: acct.user.groups,
         totpEnabled: acct.totpEnabled,
         freshEmail: acct.freshEmail,
@@ -506,9 +512,13 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
       [email],
     );
     const user = rows[0];
-    const allowed = user ? user.status === 'active' : false;
+    const allowed = Boolean(user);
     const totpReady =
-      allowed && isTotpEligible(user, { reverifyDays: config.totpEmailReverifyDays });
+      allowed &&
+      isTotpEligible(user, {
+        reverifyDays: config.totpEmailReverifyDays,
+        allowInactive: true,
+      });
 
     if (allowed && !totpReady) {
       const issued = await issueCode(pool, {
@@ -562,7 +572,7 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
       chal.email,
     ]);
     const user = rows[0];
-    if (user && user.status === 'active') {
+    if (user) {
       const issued = await issueCode(pool, {
         secret: config.keyEncryptionSecret,
         limits: config.limits,
@@ -604,10 +614,9 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
     const code = String(req.body.code ?? '');
     const result = await verifyCode(pool, config.keyEncryptionSecret, chal.uid, code);
     if (result.ok) {
-      const { rows } = await pool.query(
-        "SELECT id FROM users WHERE email = $1 AND status = 'active'",
-        [result.email],
-      );
+      const { rows } = await pool.query('SELECT id FROM users WHERE email = $1', [
+        result.email,
+      ]);
       const user = rows[0];
       if (!user) return void res.redirect(303, `${config.basePath}/account`);
 
@@ -649,6 +658,7 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
         email: chal.email,
         code,
         reverifyDays: config.totpEmailReverifyDays,
+        allowInactive: true,
       });
       if (totp.ok) {
         await pool.query(

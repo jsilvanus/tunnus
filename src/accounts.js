@@ -1,12 +1,29 @@
 import { displayNameFromEmail } from './displayName.js';
 
 /**
+ * Check whether a user account is active at the given time.
+ * An account is active if status is 'active', activates_at (if set) is <= now,
+ * and disables_at (if set) is > now.
+ * @param {Record<string, any> | undefined | null} user
+ * @param {Date | number | string} [now]
+ * @returns {boolean}
+ */
+export function isAccountActive(user, now = new Date()) {
+  if (!user || user.status !== 'active') return false;
+  const t = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  if (user.activates_at && new Date(user.activates_at).getTime() > t) return false;
+  if (user.disables_at && new Date(user.disables_at).getTime() <= t) return false;
+  return true;
+}
+
+/**
  * @param {import('pg').Pool} pool
  * @param {string} id
  */
 export async function loadUser(pool, id) {
   const { rows } = await pool.query(
-    `SELECT u.id, u.email, u.display_name, u.status,
+    `SELECT u.id, u.email, u.display_name, u.title, u.phone_number, u.status,
+            u.activates_at, u.disables_at, u.disabled_at,
             COALESCE(array_agg(g.name ORDER BY g.name) FILTER (WHERE g.name IS NOT NULL), '{}') AS groups
        FROM users u
        LEFT JOIN user_groups ug ON ug.user_id = u.id
@@ -23,7 +40,8 @@ export async function loadUser(pool, id) {
  */
 export async function findUserByEmail(pool, email) {
   const { rows } = await pool.query(
-    `SELECT id, status, totp_secret_enc, totp_enabled_at, totp_locked_until, last_email_verified_at
+    `SELECT id, status, title, phone_number, activates_at, disables_at, disabled_at,
+            totp_secret_enc, totp_enabled_at, totp_locked_until, last_email_verified_at
        FROM users
       WHERE email = $1`,
     [email.trim().toLowerCase()],
@@ -107,7 +125,7 @@ export async function ensureDefaultGroups(pool, names) {
 export function createFindAccount(pool) {
   return async (/** @type {any} */ _ctx, /** @type {string} */ id) => {
     const user = await loadUser(pool, id);
-    if (!user || user.status !== 'active') return undefined;
+    if (!user || !isAccountActive(user)) return undefined;
     return {
       accountId: id,
       async claims() {

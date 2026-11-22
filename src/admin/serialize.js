@@ -6,8 +6,9 @@
  * Selects users with their group names, sorted. Add a WHERE clause, then USER_GROUP_BY.
  * Same aggregation as loadUser in accounts.js.
  */
-export const USER_SELECT = `SELECT u.id, u.email, u.display_name, u.status, u.is_admin,
+export const USER_SELECT = `SELECT u.id, u.email, u.display_name, u.title, u.phone_number, u.status, u.is_admin,
        u.created_at, u.last_login_at, u.last_email_verified_at, u.totp_enabled_at,
+       u.activates_at, u.disables_at, u.disabled_at,
        COALESCE(array_agg(g.name ORDER BY g.name) FILTER (WHERE g.name IS NOT NULL), '{}') AS groups
   FROM users u
   LEFT JOIN user_groups ug ON ug.user_id = u.id
@@ -33,11 +34,16 @@ export function userJson(row) {
     id: row.id,
     email: row.email,
     display_name: row.display_name,
+    title: row.title ?? null,
+    phone_number: row.phone_number ?? null,
     status: row.status,
     is_admin: row.is_admin,
     created_at: iso(row.created_at),
     last_login_at: iso(row.last_login_at),
     last_email_verified_at: iso(row.last_email_verified_at),
+    activates_at: iso(row.activates_at),
+    disables_at: iso(row.disables_at),
+    disabled_at: iso(row.disabled_at),
     totp_enabled: Boolean(row.totp_enabled_at),
     groups: [...row.groups],
   };
