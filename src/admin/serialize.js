@@ -6,13 +6,27 @@
  * Selects users with their group names, sorted. Add a WHERE clause, then USER_GROUP_BY.
  * Same aggregation as loadUser in accounts.js.
  */
-export const USER_SELECT = `SELECT u.id, u.email, u.display_name, u.title, u.phone_number, u.status, u.is_admin,
+export const USER_SELECT = `WITH RECURSIVE all_group_edges AS (
+       SELECT source_group_id, implied_group_id FROM group_implications
+       UNION
+       SELECT age.source_group_id, gi.implied_group_id
+         FROM all_group_edges age
+         JOIN group_implications gi ON gi.source_group_id = age.implied_group_id
+     ),
+     user_effective_groups AS (
+       SELECT ug.user_id, ug.group_id FROM user_groups ug
+       UNION
+       SELECT ug.user_id, age.implied_group_id AS group_id
+         FROM user_groups ug
+         JOIN all_group_edges age ON age.source_group_id = ug.group_id
+     )
+     SELECT u.id, u.email, u.display_name, u.title, u.phone_number, u.status, u.is_admin,
        u.created_at, u.last_login_at, u.last_email_verified_at, u.totp_enabled_at,
        u.activates_at, u.disables_at, u.disabled_at,
-       COALESCE(array_agg(g.name ORDER BY g.name) FILTER (WHERE g.name IS NOT NULL), '{}') AS groups
+       COALESCE(array_agg(DISTINCT g.name ORDER BY g.name) FILTER (WHERE g.name IS NOT NULL), '{}') AS groups
   FROM users u
-  LEFT JOIN user_groups ug ON ug.user_id = u.id
-  LEFT JOIN groups g ON g.id = ug.group_id`;
+  LEFT JOIN user_effective_groups ueg ON ueg.user_id = u.id
+  LEFT JOIN groups g ON g.id = ueg.group_id`;
 
 /** Must follow the WHERE clause of a USER_SELECT query. */
 export const USER_GROUP_BY = 'GROUP BY u.id';

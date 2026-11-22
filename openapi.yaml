@@ -452,6 +452,56 @@ paths:
         '204': { description: Removed }
         default: { $ref: '#/components/responses/Error' }
 
+  /group-rules:
+    get:
+      operationId: listGroupRules
+      x-tunnus-cli: group-rules list
+      tags: [groups]
+      summary: List group implication rules
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/GroupRule' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      operationId: createGroupRule
+      x-tunnus-cli: group-rules add
+      tags: [groups]
+      summary: Create a group implication rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GroupRuleCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GroupRule' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /group-rules/{ruleId}:
+    delete:
+      operationId: deleteGroupRule
+      x-tunnus-cli: group-rules remove
+      tags: [groups]
+      summary: Delete a group implication rule
+      parameters:
+        - { $ref: '#/components/parameters/RuleId' }
+      responses:
+        '204': { description: Removed }
+        default: { $ref: '#/components/responses/Error' }
+
   /keys:
     get:
       operationId: listKeys
@@ -606,6 +656,11 @@ components:
       schema: { type: string, format: uuid }
     GroupId:
       name: groupId
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    RuleId:
+      name: ruleId
       in: path
       required: true
       schema: { type: integer, minimum: 1 }
@@ -819,6 +874,34 @@ components:
           format: uuid
           description: Admin who granted it; null for default groups joined at sign-up
         granted_at: { $ref: '#/components/schemas/Timestamp' }
+
+    GroupRule:
+      type: object
+      required: [id, source_group_id, source_group_name, implied_group_id, implied_group_name, created_at]
+      additionalProperties: false
+      properties:
+        id: { type: integer }
+        source_group_id: { type: integer }
+        source_group_name: { type: string }
+        implied_group_id: { type: integer }
+        implied_group_name: { type: string }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+
+    GroupRuleCreate:
+      type: object
+      required: [source_group, implied_group]
+      additionalProperties: false
+      properties:
+        source_group:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Source group name or ID
+        implied_group:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Implied group name or ID
 
     AdminToken:
       type: object

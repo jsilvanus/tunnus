@@ -22,12 +22,27 @@ export function isAccountActive(user, now = new Date()) {
  */
 export async function loadUser(pool, id) {
   const { rows } = await pool.query(
-    `SELECT u.id, u.email, u.display_name, u.title, u.phone_number, u.status,
+    `WITH RECURSIVE all_group_edges AS (
+       SELECT source_group_id, implied_group_id FROM group_implications
+       UNION
+       SELECT age.source_group_id, gi.implied_group_id
+         FROM all_group_edges age
+         JOIN group_implications gi ON gi.source_group_id = age.implied_group_id
+     ),
+     user_effective_groups AS (
+       SELECT ug.user_id, ug.group_id FROM user_groups ug WHERE ug.user_id = $1
+       UNION
+       SELECT ug.user_id, age.implied_group_id AS group_id
+         FROM user_groups ug
+         JOIN all_group_edges age ON age.source_group_id = ug.group_id
+        WHERE ug.user_id = $1
+     )
+     SELECT u.id, u.email, u.display_name, u.title, u.phone_number, u.status,
             u.activates_at, u.disables_at, u.disabled_at,
-            COALESCE(array_agg(g.name ORDER BY g.name) FILTER (WHERE g.name IS NOT NULL), '{}') AS groups
+            COALESCE(array_agg(DISTINCT g.name ORDER BY g.name) FILTER (WHERE g.name IS NOT NULL), '{}') AS groups
        FROM users u
-       LEFT JOIN user_groups ug ON ug.user_id = u.id
-       LEFT JOIN groups g ON g.id = ug.group_id
+       LEFT JOIN user_effective_groups ueg ON ueg.user_id = u.id
+       LEFT JOIN groups g ON g.id = ueg.group_id
       WHERE u.id = $1 GROUP BY u.id`,
     [id],
   );

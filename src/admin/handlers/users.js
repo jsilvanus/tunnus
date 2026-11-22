@@ -95,11 +95,11 @@ export const handlers = {
           AND ($3::text IS NULL OR u.status = $3)
           AND ($4::boolean IS NULL OR u.is_admin = $4)
           AND ($5::bigint IS NULL OR EXISTS (
-                SELECT 1 FROM user_groups ug WHERE ug.user_id = u.id AND ug.group_id = $5))
+                SELECT 1 FROM user_effective_groups ueg WHERE ueg.user_id = u.id AND ueg.group_id = $5))
           AND ($6::text IS NULL OR EXISTS (
-                SELECT 1 FROM user_groups ug
-                JOIN groups g ON g.id = ug.group_id
-                WHERE ug.user_id = u.id
+                SELECT 1 FROM user_effective_groups ueg
+                JOIN groups g ON g.id = ueg.group_id
+                WHERE ueg.user_id = u.id
                   AND (g.name = $6 OR left(g.name, length($6) + 1) = $6 || '/')))
           AND ($7::text IS NULL OR u.email > $7)
         ${USER_GROUP_BY}
