@@ -126,7 +126,15 @@ paths:
       parameters:
         - name: q
           in: query
-          description: Case-insensitive substring of email or display name
+          description: Case-insensitive substring of email, display name or title
+          schema: { type: string, minLength: 1, maxLength: 200 }
+        - name: name
+          in: query
+          description: Case-insensitive substring of display name
+          schema: { type: string, minLength: 1, maxLength: 200 }
+        - name: title
+          in: query
+          description: Case-insensitive substring of title
           schema: { type: string, minLength: 1, maxLength: 200 }
         - name: email
           in: query

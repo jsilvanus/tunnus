@@ -79,6 +79,8 @@ export const handlers = {
   async listUsers(ctx) {
     const {
       q,
+      name,
+      title,
       email,
       status,
       is_admin: isAdmin,
@@ -87,10 +89,12 @@ export const handlers = {
       limit,
     } = ctx.query;
     const pattern = q === undefined ? null : `%${escapeLike(q)}%`;
+    const namePattern = name === undefined ? null : `%${escapeLike(name)}%`;
+    const titlePattern = title === undefined ? null : `%${escapeLike(title)}%`;
     const after = ctx.query.cursor === undefined ? null : cursorField(ctx.query.cursor, 'email');
     const { rows } = await ctx.pool.query(
       `${USER_SELECT}
-        WHERE ($1::text IS NULL OR u.email ILIKE $1 OR u.display_name ILIKE $1)
+        WHERE ($1::text IS NULL OR u.email ILIKE $1 OR u.display_name ILIKE $1 OR u.title ILIKE $1)
           AND ($2::text IS NULL OR u.email = $2)
           AND ($3::text IS NULL OR u.status = $3)
           AND ($4::boolean IS NULL OR u.is_admin = $4)
@@ -101,10 +105,12 @@ export const handlers = {
                 JOIN groups g ON g.id = ueg.group_id
                 WHERE ueg.user_id = u.id
                   AND (g.name = $6 OR left(g.name, length($6) + 1) = $6 || '/')))
-          AND ($7::text IS NULL OR u.email > $7)
+          AND ($7::text IS NULL OR u.display_name ILIKE $7)
+          AND ($8::text IS NULL OR u.title ILIKE $8)
+          AND ($9::text IS NULL OR u.email > $9)
         ${USER_GROUP_BY}
         ORDER BY u.email
-        LIMIT $8`,
+        LIMIT $10`,
       [
         pattern,
         email === undefined ? null : normalizeEmail(email),
@@ -112,6 +118,8 @@ export const handlers = {
         isAdmin ?? null,
         groupId ?? null,
         groupPrefix ?? null,
+        namePattern,
+        titlePattern,
         after,
         limit + 1,
       ],
