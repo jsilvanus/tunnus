@@ -12,6 +12,7 @@
  *   query: Record<string, any>,
  *   body: any,
  *   reloadKeys: () => Promise<void>,
+ *   getProvider?: () => any | any,
  * }} HandlerContext
  */
 

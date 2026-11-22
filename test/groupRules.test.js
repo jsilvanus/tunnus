@@ -4,6 +4,7 @@ import { loadUser } from '../src/accounts.js';
 
 describe('computed / implicit group rules', () => {
   it('listGroupRules returns mapped implication items', async () => {
+    /** @type {any} */
     const pool = {
       query: async () => ({
         rows: [
@@ -19,8 +20,8 @@ describe('computed / implicit group rules', () => {
       }),
     };
 
-    const res = await handlers.listGroupRules({ pool });
-    expect(res.body.items).toEqual([
+    const res = await handlers.listGroupRules(/** @type {any} */ ({ pool }));
+    expect((/** @type {any} */ (res.body)).items).toEqual([
       {
         id: 1,
         source_group_id: 10,
@@ -33,10 +34,12 @@ describe('computed / implicit group rules', () => {
   });
 
   it('createGroupRule resolves groups by name, prevents self-implication, and inserts rule', async () => {
+    /** @type {any[]} */
     const inserted = [];
+    /** @type {any} */
     const pool = {
       connect: async () => ({
-        query: async (sql, params) => {
+        query: async (/** @type {string} */ sql, /** @type {any[]} */ params) => {
           if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
           if (sql.includes('SELECT id, name FROM groups WHERE name = $1')) {
             if (params[0] === 'parish/riihimaki') return { rows: [{ id: 10, name: 'parish/riihimaki' }] };
@@ -54,13 +57,13 @@ describe('computed / implicit group rules', () => {
     };
 
     // Valid rule creation
-    const res = await handlers.createGroupRule({
+    const res = await handlers.createGroupRule(/** @type {any} */ ({
       pool,
       body: {
         source_group: 'parish/riihimaki',
         implied_group: 'app/tavaranpaikka',
       },
-    });
+    }));
 
     expect(res.status).toBe(201);
     expect(res.body).toEqual({
@@ -75,31 +78,32 @@ describe('computed / implicit group rules', () => {
 
     // Rejects self-implication
     await expect(
-      handlers.createGroupRule({
+      handlers.createGroupRule(/** @type {any} */ ({
         pool,
         body: {
           source_group: 'parish/riihimaki',
           implied_group: 'parish/riihimaki',
         },
-      }),
+      })),
     ).rejects.toThrow('Source and implied groups cannot be the same');
 
     // Rejects missing group
     await expect(
-      handlers.createGroupRule({
+      handlers.createGroupRule(/** @type {any} */ ({
         pool,
         body: {
           source_group: 'parish/riihimaki',
           implied_group: 'nonexistent',
         },
-      }),
+      })),
     ).rejects.toThrow('Group not found');
   });
 
   it('deleteGroupRule deletes by id and returns 204 or 404', async () => {
     let deletedId = null;
+    /** @type {any} */
     const pool = {
-      query: async (sql, params) => {
+      query: async (/** @type {string} */ _sql, /** @type {any[]} */ params) => {
         if (params?.[0] === 42) {
           deletedId = params[0];
           return { rowCount: 1 };
@@ -108,19 +112,20 @@ describe('computed / implicit group rules', () => {
       },
     };
 
-    const res = await handlers.deleteGroupRule({ pool, params: { ruleId: 42 } });
+    const res = await handlers.deleteGroupRule(/** @type {any} */ ({ pool, params: { ruleId: 42 } }));
     expect(res.status).toBe(204);
     expect(deletedId).toBe(42);
 
-    await expect(handlers.deleteGroupRule({ pool, params: { ruleId: 999 } })).rejects.toThrow(
+    await expect(handlers.deleteGroupRule(/** @type {any} */ ({ pool, params: { ruleId: 999 } }))).rejects.toThrow(
       'Group rule not found',
     );
   });
 
   it('loadUser executes recursive CTE to fetch direct and implied groups', async () => {
     let executedSql = '';
+    /** @type {any} */
     const pool = {
-      query: async (sql) => {
+      query: async (/** @type {string} */ sql) => {
         executedSql = sql;
         return {
           rows: [

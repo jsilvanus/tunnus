@@ -26,6 +26,8 @@ const DAY_MS = 86_400_000;
 
 /**
  * @typedef {{
+ *   autoDisabled?: number,
+ *   autoActivated?: number,
  *   payloads: number,
  *   codes: number,
  *   auditIpsCleared: number,
@@ -447,7 +449,7 @@ export async function runCleanup({
       autoDisableExpiredUsers({ pool, config, getProvider, logger, now }),
     );
     const autoActivated = await task('auto_activated', 0, () =>
-      autoActivateScheduledUsers({ pool, config, logger, now }),
+      autoActivateScheduledUsers({ pool, logger, now }),
     );
     const payloads = await task('payloads', 0, () => deleteExpiredPayloads(pool, now));
     const codes = await task('codes', 0, () => deleteExpiredCodes(pool, now));

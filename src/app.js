@@ -76,7 +76,7 @@ export async function createApp({ config, pool, clients, mailer }, options = {})
     pool,
     clients,
     reloadKeys: holder.reload,
-    getProvider: () => holder.provider,
+    getProvider: () => holder.current,
     validateResponses,
     verifyOAuthToken,
   });

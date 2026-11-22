@@ -58,6 +58,7 @@ describe('account lifecycle and status checks', () => {
       groups: ['staff'],
     };
 
+    /** @type {any} */
     const pool = {
       query: async () => ({
         rows: [activeUser],
@@ -67,9 +68,9 @@ describe('account lifecycle and status checks', () => {
     const findAccount = createFindAccount(pool);
     const account = await findAccount({}, 'user-1');
     expect(account).toBeDefined();
-    expect(account.accountId).toBe('user-1');
+    expect(account?.accountId).toBe('user-1');
 
-    const claims = await account.claims();
+    const claims = await account?.claims();
     expect(claims).toEqual({
       sub: 'user-1',
       email: 'user1@example.org',
@@ -78,10 +79,11 @@ describe('account lifecycle and status checks', () => {
       groups: ['staff'],
     });
     // Explicitly verify title and phone_number are not present in OIDC claims
-    expect(claims.title).toBeUndefined();
-    expect(claims.phone_number).toBeUndefined();
+    expect(/** @type {any} */ (claims).title).toBeUndefined();
+    expect(/** @type {any} */ (claims).phone_number).toBeUndefined();
 
     // Inactive account returns undefined
+    /** @type {any} */
     const inactivePool = {
       query: async () => ({
         rows: [{ ...activeUser, status: 'disabled' }],
@@ -92,13 +94,13 @@ describe('account lifecycle and status checks', () => {
   });
 
   it('accountPage renders title, phone_number, status badge, and inactive banner', () => {
-    const ctx = {
+    const ctx = /** @type {any} */ ({
       locale: 'fi',
       config: {
         brand: { name: 'Tunnus', privacyNoticeUrl: '/privacy' },
         issuer: 'https://auth.example.org',
       },
-    };
+    });
 
     // Active account
     const activeHtml = accountPage(ctx, {
@@ -142,8 +144,9 @@ describe('account lifecycle and status checks', () => {
 
   it('dispatchAllBackchannelLogouts notifies distinct clients and revokes user sessions', async () => {
     const queries = [];
+    /** @type {any} */
     const pool = {
-      query: async (sql, params) => {
+      query: async (/** @type {string} */ sql, /** @type {any[]} */ params) => {
         queries.push({ sql, params });
         if (sql.includes("payload->>'clientId'")) {
           return { rows: [{ client_id: 'client-app-1' }, { client_id: 'client-app-2' }] };
@@ -155,10 +158,11 @@ describe('account lifecycle and status checks', () => {
       },
     };
 
+    /** @type {string[]} */
     const dispatched = [];
     const provider = {
       Client: {
-        find: async (cid) => ({
+        find: async (/** @type {string} */ cid) => ({
           clientId: cid,
           backchannel_logout_uri: `https://${cid}.example.org/logout`,
         }),
@@ -173,7 +177,7 @@ describe('account lifecycle and status checks', () => {
 
     try {
       // Mock active key query
-      pool.query = async (sql, params) => {
+      pool.query = async (/** @type {string} */ sql, /** @type {any[]} */ params) => {
         queries.push({ sql, params });
         if (sql.includes("payload->>'clientId'")) {
           return { rows: [{ client_id: 'client-app-1' }, { client_id: 'client-app-2' }] };
@@ -197,7 +201,7 @@ describe('account lifecycle and status checks', () => {
       };
 
       const result = await dispatchAllBackchannelLogouts({
-        config: { issuer: 'https://auth.example.org', keyEncryptionSecret: '01234567890123456789012345678901' },
+        config: /** @type {any} */ ({ issuer: 'https://auth.example.org', keyEncryptionSecret: '01234567890123456789012345678901' }),
         pool,
         getProvider: () => provider,
         userId: 'u-123',
@@ -215,10 +219,12 @@ describe('account lifecycle and status checks', () => {
 
   it('autoDisableExpiredUsers and autoActivateScheduledUsers manage account status based on time', async () => {
     const now = new Date('2026-11-22T10:00:00Z');
+    /** @type {any[]} */
     const userUpdates = [];
+    /** @type {any} */
     const pool = {
       connect: async () => ({
-        query: async (sql, params) => {
+        query: async (/** @type {string} */ sql, /** @type {any[]} */ params) => {
           if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
           if (sql.includes('UPDATE users')) {
             userUpdates.push({ sql, params });
@@ -228,7 +234,7 @@ describe('account lifecycle and status checks', () => {
         },
         release: () => {},
       }),
-      query: async (sql) => {
+      query: async (/** @type {string} */ sql) => {
         if (sql.includes("status = 'active'") && sql.includes('disables_at <=')) {
           return { rows: [{ id: 'user-to-disable' }] };
         }
@@ -254,7 +260,7 @@ describe('account lifecycle and status checks', () => {
 
     const disabledCount = await autoDisableExpiredUsers({
       pool,
-      config: { issuer: 'https://auth.example.org', keyEncryptionSecret: '01234567890123456789012345678901' },
+      config: /** @type {any} */ ({ issuer: 'https://auth.example.org', keyEncryptionSecret: '01234567890123456789012345678901' }),
       logger,
       now,
     });

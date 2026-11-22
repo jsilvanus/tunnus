@@ -29,7 +29,7 @@ const cleanup = startCleanupScheduler({
   mailer,
   logger,
   metrics,
-  getProvider: () => holder.provider,
+  getProvider: () => holder.current,
 });
 const server = app.listen(config.port, () =>
   logger.info({ issuer: config.issuer, port: config.port }, 'tunnus listening'),
