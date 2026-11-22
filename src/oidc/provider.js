@@ -8,6 +8,81 @@ import { alwaysGroupsOf, scopeWithGroups } from './alwaysGroups.js';
 import { logoutDonePage, logoutPage } from '../web/pages.js';
 
 /**
+ * Create the getResourceServerInfo resolver for RFC 8707 / RFC 9728 resource indicators.
+ * @param {{ config: import('../config.js').Config, clients: Record<string, any>[] }} deps
+ */
+export function createResourceServerInfoResolver({ config, clients }) {
+  return (
+    /** @type {any} */ ctx,
+    /** @type {string} */ resourceIndicator,
+    /** @type {any} */ client,
+  ) => {
+    const c = client || ctx?.oidc?.client;
+    const rawClient = clients?.find((cl) => cl.client_id === (c?.clientId || c?.client_id));
+    const clientAllowedResources = c?.allowed_resources || rawClient?.allowed_resources;
+    const isFirstParty = Boolean(c?.first_party || rawClient?.first_party);
+
+    let isAllowed = false;
+    if (config.mcp?.resourceUrl && resourceIndicator === config.mcp.resourceUrl) {
+      isAllowed = true;
+    } else if (
+      Array.isArray(clientAllowedResources) &&
+      clientAllowedResources.includes(resourceIndicator)
+    ) {
+      isAllowed = true;
+    } else if (isFirstParty) {
+      if (
+        Array.isArray(config.allowedResourceOrigins) &&
+        config.allowedResourceOrigins.some(
+          (origin) => origin && resourceIndicator.startsWith(origin),
+        )
+      ) {
+        isAllowed = true;
+      } else if (
+        Array.isArray(clientAllowedResources) &&
+        clientAllowedResources.some((res) => res && resourceIndicator.startsWith(res))
+      ) {
+        isAllowed = true;
+      } else if (clients) {
+        for (const otherClient of clients) {
+          if (
+            Array.isArray(otherClient.allowed_resources) &&
+            otherClient.allowed_resources.includes(resourceIndicator)
+          ) {
+            isAllowed = true;
+            break;
+          }
+          if (Array.isArray(otherClient.redirect_uris)) {
+            for (const uri of otherClient.redirect_uris) {
+              try {
+                const origin = new URL(uri).origin;
+                if (origin && resourceIndicator.startsWith(origin)) {
+                  isAllowed = true;
+                  break;
+                }
+              } catch {
+                // ignore invalid url
+              }
+            }
+            if (isAllowed) break;
+          }
+        }
+      }
+    }
+
+    if (!isAllowed) return /** @type {any} */ (undefined);
+
+    return {
+      scope: 'mcp',
+      audience: resourceIndicator,
+      accessTokenTTL: 600,
+      accessTokenFormat: 'jwt',
+      jwt: { sign: { alg: 'RS256' } },
+    };
+  };
+}
+
+/**
  * Build the oidc-provider instance.
  * @param {{ config: import('../config.js').Config, pool: import('pg').Pool, clients: Record<string, any>[], jwks: { keys: any[] } }} deps
  */
@@ -51,7 +126,16 @@ export function createProvider({ config, pool, clients, jwks }) {
         disabled: Boolean(disabled),
       }),
     ),
-    extraClientMetadata: { properties: ['first_party', 'always_include_groups', 'disabled'] },
+    extraClientMetadata: {
+      properties: [
+        'first_party',
+        'always_include_groups',
+        'disabled',
+        'allowed_resources',
+        'backchannel_logout_uri',
+        'backchannel_logout_session_required',
+      ],
+    },
     jwks,
     cookies: { keys: config.cookieSecrets },
     findAccount: createFindAccount(pool),
@@ -95,6 +179,7 @@ export function createProvider({ config, pool, clients, jwks }) {
       },
       // Clients may revoke their own access and refresh tokens (RFC 7009).
       revocation: { enabled: true },
+      backchannelLogout: { enabled: true },
       ...(mcpOauth
         ? {
             clientIdMetadataDocument: {
@@ -103,20 +188,7 @@ export function createProvider({ config, pool, clients, jwks }) {
             },
             resourceIndicators: {
               enabled: true,
-              getResourceServerInfo: (
-                /** @type {any} */ _ctx,
-                /** @type {string} */ resourceIndicator,
-              ) => {
-                if (resourceIndicator !== config.mcp.resourceUrl)
-                  return /** @type {any} */ (undefined);
-                return {
-                  scope: 'mcp',
-                  audience: resourceIndicator,
-                  accessTokenTTL: 600,
-                  accessTokenFormat: 'jwt',
-                  jwt: { sign: { alg: 'RS256' } },
-                };
-              },
+              getResourceServerInfo: createResourceServerInfoResolver({ config, clients }),
             },
           }
         : {}),

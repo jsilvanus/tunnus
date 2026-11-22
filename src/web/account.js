@@ -26,6 +26,8 @@ import {
   setDbMcpLock,
 } from '../mcp/dbState.js';
 import { getFixedTimeRemainingMs, isFixedTimeRunning } from '../client/mcpState.js';
+import { dispatchBackchannelLogout } from '../oidc/backchannel.js';
+import { errorFields, logger } from '../logger.js';
 
 const FRESH_EMAIL_MS = 10 * 60 * 1000;
 const ACCOUNT_SESSION_MS = 60 * 60 * 1000;
@@ -244,6 +246,7 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
           clientId,
           clientName: clientId,
           scopes: new Set(),
+          resources: new Set(),
         });
       }
       const item = appsMap.get(clientId);
@@ -252,9 +255,21 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
           if (s) item.scopes.add(s);
         }
       }
+      if (row.payload.resources) {
+        if (Array.isArray(row.payload.resources)) {
+          for (const r of row.payload.resources) {
+            if (typeof r === 'string' && r) item.resources.add(r);
+            else if (r && typeof r === 'object' && r.indicator) item.resources.add(r.indicator);
+          }
+        } else if (typeof row.payload.resources === 'object') {
+          for (const r of Object.keys(row.payload.resources)) {
+            if (r) item.resources.add(r);
+          }
+        }
+      }
     }
 
-    /** @type {Array<{ clientId: string, clientName: string, scopes: string[], isMcp: boolean }>} */
+    /** @type {Array<{ clientId: string, clientName: string, scopes: string[], resources?: string[], isMcp: boolean }>} */
     const apps = [];
     for (const [clientId, item] of appsMap) {
       let isFirstParty = false;
@@ -276,6 +291,7 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
           clientId: item.clientId,
           clientName: item.clientName,
           scopes: Array.from(item.scopes),
+          resources: Array.from(item.resources || []),
           isMcp: hasMcp,
         });
       }
@@ -337,6 +353,20 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
       targetType: 'client',
       targetId: clientId,
       ip: req.ip ?? null,
+    });
+
+    void dispatchBackchannelLogout({
+      config,
+      pool,
+      getProvider,
+      userId: acct.user.id,
+      clientId,
+      events: {
+        'http://schemas.openid.net/event/backchannel-logout': {},
+        'https://tunnus.fi/event/mcp-revoke': { clientId },
+      },
+    }).catch((err) => {
+      logger.warn({ err: errorFields(err), clientId }, 'dispatchBackchannelLogout failed');
     });
 
     const ctx = ctxOf(req);

@@ -271,6 +271,7 @@ export function loadConfig(env = process.env, io = {}) {
       startDelaySeconds: int(env, 'CLEANUP_START_DELAY_SECONDS', 60),
       intervalHours,
     },
+    allowedResourceOrigins: parseList(env.ALLOWED_RESOURCE_ORIGINS),
     mcp: {
       enabled: mcpEnabled,
       oauthEnabled: mcpOauthEnabled,

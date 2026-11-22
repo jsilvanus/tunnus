@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import http from 'node:http';
 import { once } from 'node:events';
 import { createHmac } from 'node:crypto';
 import { accountPage } from '../src/web/pages.js';
 import { createAccountRouter } from '../src/web/account.js';
-import { encryptWithKey, deriveSubkey } from '../src/oidc/keys.js';
+import { encryptWithKey, deriveSubkey, encrypt, generateKey } from '../src/oidc/keys.js';
 import { encryptTotpSecret, generateTotpSecret, totpCode } from '../src/totp.js';
 
 const KEY_SECRET = 'test-key-encryption-secret-01234567890123456789';
@@ -191,6 +191,17 @@ describe('account login with TOTP support', () => {
         if (sql.includes('UPDATE email_codes')) {
           return { rows: [] };
         }
+        if (sql.includes("FROM signing_keys WHERE status = 'active'")) {
+          const { kid, priv } = generateKey();
+          return {
+            rows: [
+              {
+                kid,
+                private_jwk: encrypt(JSON.stringify(priv), KEY_SECRET),
+              },
+            ],
+          };
+        }
         return { rows: [] };
       },
       connect: async () => ({
@@ -216,7 +227,12 @@ describe('account login with TOTP support', () => {
           Session: { get: async () => null },
           Client: {
             find: async (/** @type {string} */ clientId) => {
-              if (clientId === 'chatgpt') return { clientName: 'ChatGPT', clientId: 'chatgpt' };
+              if (clientId === 'chatgpt')
+                return {
+                  clientName: 'ChatGPT',
+                  clientId: 'chatgpt',
+                  backchannel_logout_uri: 'https://chatgpt.example.org/backchannel-logout',
+                };
               if (clientId === 'vuorot')
                 return { clientName: 'Vuorot', clientId: 'vuorot', first_party: true };
               return null;
@@ -295,6 +311,7 @@ describe('account login with TOTP support', () => {
           clientId: 'chatgpt',
           accountId: userWithTotp.id,
           openid: { scope: 'openid mcp' },
+          resources: ['https://ptv.example.org/mcp'],
           iat: Math.floor(Date.now() / 1000),
         },
         expires_at: new Date(Date.now() + 100000),
@@ -318,29 +335,51 @@ describe('account login with TOTP support', () => {
     expect(res.text).toContain('ChatGPT');
     expect(res.text).toContain('MCP');
     expect(res.text).toContain('openid, mcp');
+    expect(res.text).toContain('Resources:');
+    expect(res.text).toContain('https://ptv.example.org/mcp');
     expect(res.text).toContain('Revoke access');
     // First-party app Vuorot should be omitted
     expect(res.text).not.toContain('Vuorot');
   });
 
-  it('revokes app access on POST /account/apps/revoke', async () => {
-    const { app, deletedPayloads, audits } = setupApp();
-    const cookie = makeSessionCookie(userWithTotp.id);
-    const csrf = makeCsrf();
-
-    const res = await request(app, '/account/apps/revoke', {
-      method: 'POST',
-      headers: {
-        cookie,
-        'content-type': 'application/x-www-form-urlencoded',
-      },
-      body: `csrf=${csrf}&clientId=chatgpt`,
+  it('revokes app access on POST /account/apps/revoke and dispatches backchannel logout', async () => {
+    const originalFetch = globalThis.fetch;
+    /** @type {any} */
+    let dispatchedCall = null;
+    globalThis.fetch = vi.fn(async (url, init) => {
+      if (typeof url === 'string' && url.includes('127.0.0.1')) {
+        return originalFetch(url, init);
+      }
+      dispatchedCall = { url, init };
+      return new Response('OK', { status: 200 });
     });
 
-    expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toContain('app_notice=');
-    expect(deletedPayloads).toHaveLength(1);
-    expect(deletedPayloads[0]).toEqual([userWithTotp.id, 'chatgpt']);
-    expect(audits).toHaveLength(1);
+    try {
+      const { app, deletedPayloads, audits } = setupApp();
+      const cookie = makeSessionCookie(userWithTotp.id);
+      const csrf = makeCsrf();
+
+      const res = await request(app, '/account/apps/revoke', {
+        method: 'POST',
+        headers: {
+          cookie,
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+        body: `csrf=${csrf}&clientId=chatgpt`,
+      });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toContain('app_notice=');
+      expect(deletedPayloads).toHaveLength(1);
+      expect(deletedPayloads[0]).toEqual([userWithTotp.id, 'chatgpt']);
+      expect(audits.some((a) => a[1] === 'account_app_revoked')).toBe(true);
+
+      // Give async backchannel task a tick to complete
+      await new Promise((r) => setTimeout(r, 50));
+      expect(dispatchedCall).not.toBeNull();
+      expect(dispatchedCall.url).toBe('https://chatgpt.example.org/backchannel-logout');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

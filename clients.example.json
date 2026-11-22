@@ -7,6 +7,8 @@
     "token_endpoint_auth_method": "client_secret_post",
     "first_party": true,
     "always_include_groups": true,
-    "grant_types": ["authorization_code", "refresh_token"]
+    "grant_types": ["authorization_code", "refresh_token"],
+    "backchannel_logout_uri": "https://app.example.org/auth/backchannel-logout",
+    "allowed_resources": ["https://app.example.org/mcp"]
   }
 ]

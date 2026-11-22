@@ -133,9 +133,11 @@ Design: [`production.md`](production.md).
 - [ ] Passkeys (WebAuthn), once a deployment's domain is final
 - [ ] Self-service email change with verification of the new address
 - [ ] Secondary email address: keep primary `email` as the username/claim, but send sign-in codes (and optionally inactivity warnings) to both primary and secondary addresses
-- [ ] Back-channel logout to clients (OpenID Connect Back-Channel Logout 1.0):
-      Enable `features.backchannelLogout` in `oidc-provider` and register `backchannel_logout_uri` on clients (Vuorot, Tavaranpaikka, etc.).
-      Trigger back-channel logout when user rights/groups are removed, app access is revoked from `/account`, or a user is disabled / session terminated, so client applications can immediately destroy the user's active session rather than waiting for local cookie/token expiry.
+- [x] Back-channel logout & MCP revocation (OpenID Connect Back-Channel Logout 1.0 & CAEP):
+      Enable `features.backchannelLogout` in `oidc-provider` and register `backchannel_logout_uri` on clients (Vuorot, Tavaranpaikka, PTV-MCP, etc.).
+      Trigger back-channel logout and MCP revocation when user rights/groups are removed, app access is revoked from `/account`, or a user is disabled / session terminated, so client applications can immediately destroy the user's active session and revoke MCP tokens. See [`mcp-centralization-plan.md`](mcp-centralization-plan.md).
+- [x] Centralize downstream MCP OAuth on Tunnus (RFC 9728 / RFC 8707):
+      Support downstream resource indicators in `oidc-provider`, show target resources for authorized applications on `/account`, and dispatch back-channel revocation signals. See [`mcp-centralization-plan.md`](mcp-centralization-plan.md).
 - [ ] User export for data-subject access requests
 
 ## Review follow-ups (2026-11-17)

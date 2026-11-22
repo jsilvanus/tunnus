@@ -269,6 +269,7 @@ ${errorLine(error ?? '', ctx)}<button>${esc(t(locale, 'continue'))}</button></fo
  *     clientId: string,
  *     clientName: string,
  *     scopes: string[],
+ *     resources?: string[],
  *     isMcp?: boolean,
  *   }>,
  *   appNotice?: string,
@@ -480,9 +481,13 @@ ${commitControls}
         const mcpBadge = app.isMcp
           ? ` <span style="display:inline-block;padding:.1rem .3rem;border-radius:.2rem;font-size:.7rem;font-weight:600;background:#e0f2fe;color:#0369a1">MCP</span>`
           : '';
+        const resourcesStr =
+          app.resources && app.resources.length > 0
+            ? `<br><small style="color:#555"><em>${esc(t(locale, 'account_apps_resources'))}:</em> ${esc(app.resources.join(', '))}</small>`
+            : '';
         return `<tr>
 <td><strong>${esc(app.clientName)}</strong>${mcpBadge}${idSubtitle}</td>
-<td><small style="color:#555">${scopesStr}</small></td>
+<td><small style="color:#555">${scopesStr}</small>${resourcesStr}</td>
 <td style="text-align:right">
 <form method="post" action="${esc(p.basePath)}/account/apps/revoke" style="display:inline">
 <input type="hidden" name="csrf" value="${esc(p.csrf)}">

@@ -217,6 +217,23 @@ export async function loadJwks(pool, secret) {
 }
 
 /**
+ * Active private key JWK for signing tokens.
+ * @param {import('pg').Pool} pool
+ * @param {string} secret
+ * @returns {Promise<Record<string, any>>}
+ */
+export async function getActiveKey(pool, secret) {
+  const { rows } = await pool.query(
+    "SELECT kid, private_jwk FROM signing_keys WHERE status = 'active' LIMIT 1",
+  );
+  if (!rows[0]) throw new KeyError('not_found', 'No active signing key found');
+  const raw = rows[0].private_jwk;
+  const key = typeof raw === 'string' ? JSON.parse(decrypt(raw, secret)) : raw;
+  key.kid = rows[0].kid;
+  return key;
+}
+
+/**
  * Kids of the keys that loadJwks publishes, in the same order. Used to detect key changes made elsewhere.
  * @param {import('pg').Pool} pool
  * @returns {Promise<string[]>}
