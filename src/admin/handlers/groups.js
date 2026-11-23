@@ -8,6 +8,8 @@ import {
   isForeignKeyViolation,
   isUniqueViolation,
   notFound,
+  resolveGroup,
+  resolveUser,
 } from '../handlerHelpers.js';
 
 /** @typedef {import('../types.js').HandlerContext} HandlerContext */
@@ -90,14 +92,27 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async createGroup(ctx) {
-    const { name, description } = ctx.body;
+    const { name, description, members } = ctx.body;
     let id;
     try {
-      const { rows } = await ctx.pool.query(
-        'INSERT INTO groups (name, description) VALUES ($1, $2) RETURNING id',
-        [name, description],
-      );
-      id = Number(rows[0].id);
+      id = await inTransaction(ctx.pool, async (client) => {
+        const { rows } = await client.query(
+          'INSERT INTO groups (name, description) VALUES ($1, $2) RETURNING id',
+          [name, description],
+        );
+        const newId = Number(rows[0].id);
+        if (Array.isArray(members) && members.length > 0) {
+          for (const member of members) {
+            const user = await resolveUser(client, member);
+            await client.query(
+              `INSERT INTO user_groups (user_id, group_id, granted_by) VALUES ($1, $2, $3)
+               ON CONFLICT (user_id, group_id) DO NOTHING`,
+              [user.id, newId, ctx.actor?.userId ?? null],
+            );
+          }
+        }
+        return newId;
+      });
     } catch (err) {
       throw mapNameConflict(err);
     }
@@ -114,7 +129,8 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async getGroup(ctx) {
-    const row = await findGroup(ctx.pool, Number(ctx.params.groupId));
+    const target = await resolveGroup(ctx.pool, ctx.params.groupId);
+    const row = await findGroup(ctx.pool, target.id);
     if (!row) throw notFound('Group not found');
     return { body: groupJson(row, ctx.config.defaultGroups) };
   },
@@ -126,13 +142,15 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async updateGroup(ctx) {
-    const groupId = Number(ctx.params.groupId);
+    const groupRef = ctx.params.groupId;
     const { name, description } = ctx.body;
     const defaults = ctx.config.defaultGroups;
 
     let result;
     try {
       result = await inTransaction(ctx.pool, async (client) => {
+        const target = await resolveGroup(client, groupRef);
+        const groupId = Number(target.id);
         const { rows } = await client.query(
           'SELECT name, description FROM groups WHERE id = $1 FOR UPDATE',
           [groupId],
@@ -153,14 +171,18 @@ export const handlers = {
         if (renamed) fields.push('name');
         if (description !== undefined && description !== before.description)
           fields.push('description');
-        return { row: await findGroup(client, groupId), fields };
+        return { row: await findGroup(client, groupId), fields, groupId };
       });
     } catch (err) {
       throw mapNameConflict(err);
     }
     return {
       body: groupJson(result.row, defaults),
-      audit: { targetType: 'group', targetId: String(groupId), details: { fields: result.fields } },
+      audit: {
+        targetType: 'group',
+        targetId: String(result.groupId),
+        details: { fields: result.fields },
+      },
     };
   },
 
@@ -170,17 +192,19 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async deleteGroup(ctx) {
-    const groupId = Number(ctx.params.groupId);
-    const name = await inTransaction(ctx.pool, async (client) => {
+    const groupRef = ctx.params.groupId;
+    const { groupId, name } = await inTransaction(ctx.pool, async (client) => {
+      const target = await resolveGroup(client, groupRef);
+      const gid = Number(target.id);
       const { rows } = await client.query('SELECT name FROM groups WHERE id = $1 FOR UPDATE', [
-        groupId,
+        gid,
       ]);
       if (!rows[0]) throw notFound('Group not found');
       if (ctx.config.defaultGroups.includes(rows[0].name)) {
         throw defaultGroupConflict(rows[0].name);
       }
-      await client.query('DELETE FROM groups WHERE id = $1', [groupId]);
-      return rows[0].name;
+      await client.query('DELETE FROM groups WHERE id = $1', [gid]);
+      return { groupId: gid, name: rows[0].name };
     });
     return {
       status: 204,
@@ -194,12 +218,10 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async listUserGroups(ctx) {
-    const userId = String(ctx.params.userId);
-    const { rowCount } = await ctx.pool.query('SELECT 1 FROM users WHERE id = $1', [userId]);
-    if (!rowCount) throw notFound('User not found');
+    const user = await resolveUser(ctx.pool, ctx.params.userId);
     const { rows } = await ctx.pool.query(
       `${MEMBERSHIP_SELECT} WHERE ug.user_id = $1 ORDER BY g.name`,
-      [userId],
+      [user.id],
     );
     return { body: { items: rows.map(membershipJson) } };
   },
@@ -210,10 +232,9 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async listGroupMembers(ctx) {
-    const groupId = Number(ctx.params.groupId);
+    const target = await resolveGroup(ctx.pool, ctx.params.groupId);
+    const groupId = Number(target.id);
     const { limit } = ctx.query;
-    const { rowCount } = await ctx.pool.query('SELECT 1 FROM groups WHERE id = $1', [groupId]);
-    if (!rowCount) throw notFound('Group not found');
     const after = ctx.query.cursor === undefined ? null : cursorField(ctx.query.cursor, 'email');
     const { rows } = await ctx.pool.query(
       `${MEMBERSHIP_SELECT}
@@ -234,14 +255,12 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async grantMembership(ctx) {
-    const groupId = Number(ctx.params.groupId);
-    const userId = String(ctx.params.userId);
-    const [user, group] = await Promise.all([
-      ctx.pool.query('SELECT 1 FROM users WHERE id = $1', [userId]),
-      ctx.pool.query('SELECT 1 FROM groups WHERE id = $1', [groupId]),
+    const [group, user] = await Promise.all([
+      resolveGroup(ctx.pool, ctx.params.groupId),
+      resolveUser(ctx.pool, ctx.params.userId),
     ]);
-    if (!user.rowCount) throw notFound('User not found');
-    if (!group.rowCount) throw notFound('Group not found');
+    const groupId = Number(group.id);
+    const userId = String(user.id);
 
     let inserted;
     try {
@@ -271,8 +290,12 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async revokeMembership(ctx) {
-    const groupId = Number(ctx.params.groupId);
-    const userId = String(ctx.params.userId);
+    const [group, user] = await Promise.all([
+      resolveGroup(ctx.pool, ctx.params.groupId),
+      resolveUser(ctx.pool, ctx.params.userId),
+    ]);
+    const groupId = Number(group.id);
+    const userId = String(user.id);
     const { rowCount } = await ctx.pool.query(
       'DELETE FROM user_groups WHERE user_id = $1 AND group_id = $2',
       [userId, groupId],

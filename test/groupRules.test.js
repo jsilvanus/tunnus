@@ -21,7 +21,7 @@ describe('computed / implicit group rules', () => {
     };
 
     const res = await handlers.listGroupRules(/** @type {any} */ ({ pool }));
-    expect((/** @type {any} */ (res.body)).items).toEqual([
+    expect(/** @type {any} */ (res.body).items).toEqual([
       {
         id: 1,
         source_group_id: 10,
@@ -42,8 +42,10 @@ describe('computed / implicit group rules', () => {
         query: async (/** @type {string} */ sql, /** @type {any[]} */ params) => {
           if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
           if (sql.includes('SELECT id, name FROM groups WHERE name = $1')) {
-            if (params[0] === 'parish/riihimaki') return { rows: [{ id: 10, name: 'parish/riihimaki' }] };
-            if (params[0] === 'app/tavaranpaikka') return { rows: [{ id: 20, name: 'app/tavaranpaikka' }] };
+            if (params[0] === 'parish/riihimaki')
+              return { rows: [{ id: 10, name: 'parish/riihimaki' }] };
+            if (params[0] === 'app/tavaranpaikka')
+              return { rows: [{ id: 20, name: 'app/tavaranpaikka' }] };
             return { rows: [] };
           }
           if (sql.includes('INSERT INTO group_implications')) {
@@ -57,13 +59,15 @@ describe('computed / implicit group rules', () => {
     };
 
     // Valid rule creation
-    const res = await handlers.createGroupRule(/** @type {any} */ ({
-      pool,
-      body: {
-        source_group: 'parish/riihimaki',
-        implied_group: 'app/tavaranpaikka',
-      },
-    }));
+    const res = await handlers.createGroupRule(
+      /** @type {any} */ ({
+        pool,
+        body: {
+          source_group: 'parish/riihimaki',
+          implied_group: 'app/tavaranpaikka',
+        },
+      }),
+    );
 
     expect(res.status).toBe(201);
     expect(res.body).toEqual({
@@ -78,25 +82,93 @@ describe('computed / implicit group rules', () => {
 
     // Rejects self-implication
     await expect(
-      handlers.createGroupRule(/** @type {any} */ ({
-        pool,
-        body: {
-          source_group: 'parish/riihimaki',
-          implied_group: 'parish/riihimaki',
-        },
-      })),
+      handlers.createGroupRule(
+        /** @type {any} */ ({
+          pool,
+          body: {
+            source_group: 'parish/riihimaki',
+            implied_group: 'parish/riihimaki',
+          },
+        }),
+      ),
     ).rejects.toThrow('Source and implied groups cannot be the same');
 
     // Rejects missing group
     await expect(
-      handlers.createGroupRule(/** @type {any} */ ({
+      handlers.createGroupRule(
+        /** @type {any} */ ({
+          pool,
+          body: {
+            source_group: 'parish/riihimaki',
+            implied_group: 'nonexistent',
+          },
+        }),
+      ),
+    ).rejects.toThrow('Group not found');
+  });
+
+  it('createGroupRule supports batch creation with implied_groups', async () => {
+    /** @type {any[]} */
+    const inserted = [];
+    /** @type {any} */
+    const pool = {
+      connect: async () => ({
+        query: async (/** @type {string} */ sql, /** @type {any[]} */ params) => {
+          if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+          if (sql.includes('SELECT id, name FROM groups WHERE name = $1')) {
+            if (params[0] === 'parish/riihimaki/admin')
+              return { rows: [{ id: 10, name: 'parish/riihimaki/admin' }] };
+            if (params[0] === 'app/tavaranpaikka')
+              return { rows: [{ id: 20, name: 'app/tavaranpaikka' }] };
+            if (params[0] === 'app/weekly-prayers')
+              return { rows: [{ id: 30, name: 'app/weekly-prayers' }] };
+            return { rows: [] };
+          }
+          if (sql.includes('INSERT INTO group_implications')) {
+            inserted.push(params);
+            return { rows: [{ id: inserted.length + 100, created_at: '2026-11-23T10:00:00Z' }] };
+          }
+          return { rows: [] };
+        },
+        release: () => {},
+      }),
+    };
+
+    const res = await handlers.createGroupRule(
+      /** @type {any} */ ({
         pool,
         body: {
-          source_group: 'parish/riihimaki',
-          implied_group: 'nonexistent',
+          source_group: 'parish/riihimaki/admin',
+          implied_groups: ['app/tavaranpaikka', 'app/weekly-prayers'],
         },
-      })),
-    ).rejects.toThrow('Group not found');
+      }),
+    );
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({
+      items: [
+        {
+          id: 101,
+          source_group_id: 10,
+          source_group_name: 'parish/riihimaki/admin',
+          implied_group_id: 20,
+          implied_group_name: 'app/tavaranpaikka',
+          created_at: '2026-11-23T10:00:00.000Z',
+        },
+        {
+          id: 102,
+          source_group_id: 10,
+          source_group_name: 'parish/riihimaki/admin',
+          implied_group_id: 30,
+          implied_group_name: 'app/weekly-prayers',
+          created_at: '2026-11-23T10:00:00.000Z',
+        },
+      ],
+    });
+    expect(inserted).toEqual([
+      [10, 20],
+      [10, 30],
+    ]);
   });
 
   it('deleteGroupRule deletes by id and returns 204 or 404', async () => {
@@ -112,13 +184,15 @@ describe('computed / implicit group rules', () => {
       },
     };
 
-    const res = await handlers.deleteGroupRule(/** @type {any} */ ({ pool, params: { ruleId: 42 } }));
+    const res = await handlers.deleteGroupRule(
+      /** @type {any} */ ({ pool, params: { ruleId: 42 } }),
+    );
     expect(res.status).toBe(204);
     expect(deletedId).toBe(42);
 
-    await expect(handlers.deleteGroupRule(/** @type {any} */ ({ pool, params: { ruleId: 999 } }))).rejects.toThrow(
-      'Group rule not found',
-    );
+    await expect(
+      handlers.deleteGroupRule(/** @type {any} */ ({ pool, params: { ruleId: 999 } })),
+    ).rejects.toThrow('Group rule not found');
   });
 
   it('loadUser executes recursive CTE to fetch direct and implied groups', async () => {

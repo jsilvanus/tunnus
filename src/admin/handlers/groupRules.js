@@ -1,5 +1,11 @@
 import { AdminError } from '../errors.js';
-import { conflict, inTransaction, isUniqueViolation, notFound } from '../handlerHelpers.js';
+import {
+  conflict,
+  inTransaction,
+  isUniqueViolation,
+  notFound,
+  resolveGroup,
+} from '../handlerHelpers.js';
 
 /** @typedef {import('../types.js').HandlerContext} HandlerContext */
 /** @typedef {import('../types.js').HandlerResult} HandlerResult */
@@ -39,55 +45,81 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async createGroupRule(ctx) {
-    const { source_group: sourceGroup, implied_group: impliedGroup } = ctx.body;
+    const {
+      source_group: sourceGroup,
+      source_groups: sourceGroups,
+      implied_group: impliedGroup,
+      implied_groups: impliedGroups,
+    } = ctx.body;
 
-    /**
-     * @param {import('pg').PoolClient} client
-     * @param {string | number} val
-     */
-    const resolveGroup = async (client, val) => {
-      if (/^\d+$/.test(String(val).trim())) {
-        const { rows } = await client.query('SELECT id, name FROM groups WHERE id = $1', [
-          Number(val),
-        ]);
-        if (rows[0]) return rows[0];
-      }
-      const { rows } = await client.query('SELECT id, name FROM groups WHERE name = $1', [
-        String(val).trim(),
+    const sources =
+      Array.isArray(sourceGroups) && sourceGroups.length > 0
+        ? sourceGroups
+        : sourceGroup !== undefined && sourceGroup !== null
+          ? [sourceGroup]
+          : [];
+
+    const implieds =
+      Array.isArray(impliedGroups) && impliedGroups.length > 0
+        ? impliedGroups
+        : impliedGroup !== undefined && impliedGroup !== null
+          ? [impliedGroup]
+          : [];
+
+    if (sources.length === 0) {
+      throw new AdminError(400, 'invalid_request', 'Missing source group', [
+        { path: '/source_group', message: 'required' },
       ]);
-      if (rows[0]) return rows[0];
-      throw notFound(`Group not found: ${val}`);
-    };
+    }
+    if (implieds.length === 0) {
+      throw new AdminError(400, 'invalid_request', 'Missing implied group', [
+        { path: '/implied_group', message: 'required' },
+      ]);
+    }
 
-    let result;
+    const isBatch = Boolean(sourceGroups || impliedGroups);
+
+    let items;
     try {
-      result = await inTransaction(ctx.pool, async (client) => {
-        const src = await resolveGroup(client, sourceGroup);
-        const imp = await resolveGroup(client, impliedGroup);
+      items = await inTransaction(ctx.pool, async (client) => {
+        /** @type {any[]} */
+        const resultItems = [];
+        for (const srcRef of sources) {
+          const src = await resolveGroup(client, srcRef);
+          for (const impRef of implieds) {
+            const imp = await resolveGroup(client, impRef);
 
-        if (String(src.id) === String(imp.id)) {
-          throw new AdminError(
-            400,
-            'invalid_request',
-            'Source and implied groups cannot be the same',
-          );
+            if (String(src.id) === String(imp.id)) {
+              throw new AdminError(
+                400,
+                'invalid_request',
+                'Source and implied groups cannot be the same',
+              );
+            }
+
+            const query = isBatch
+              ? `INSERT INTO group_implications (source_group_id, implied_group_id)
+                 VALUES ($1, $2)
+                 ON CONFLICT (source_group_id, implied_group_id) DO UPDATE
+                 SET source_group_id = EXCLUDED.source_group_id
+                 RETURNING id, created_at`
+              : `INSERT INTO group_implications (source_group_id, implied_group_id)
+                 VALUES ($1, $2)
+                 RETURNING id, created_at`;
+
+            const { rows } = await client.query(query, [src.id, imp.id]);
+
+            resultItems.push({
+              id: Number(rows[0].id),
+              source_group_id: Number(src.id),
+              source_group_name: src.name,
+              implied_group_id: Number(imp.id),
+              implied_group_name: imp.name,
+              created_at: new Date(rows[0].created_at).toISOString(),
+            });
+          }
         }
-
-        const { rows } = await client.query(
-          `INSERT INTO group_implications (source_group_id, implied_group_id)
-           VALUES ($1, $2)
-           RETURNING id, created_at`,
-          [src.id, imp.id],
-        );
-
-        return {
-          id: Number(rows[0].id),
-          source_group_id: Number(src.id),
-          source_group_name: src.name,
-          implied_group_id: Number(imp.id),
-          implied_group_name: imp.name,
-          created_at: new Date(rows[0].created_at).toISOString(),
-        };
+        return resultItems;
       });
     } catch (err) {
       if (isUniqueViolation(err)) {
@@ -96,15 +128,31 @@ export const handlers = {
       throw err;
     }
 
+    if (!isBatch) {
+      const single = items[0];
+      return {
+        status: 201,
+        body: single,
+        audit: {
+          targetType: 'group_rule',
+          targetId: String(single.id),
+          details: {
+            source: single.source_group_name,
+            implies: single.implied_group_name,
+          },
+        },
+      };
+    }
+
     return {
       status: 201,
-      body: result,
+      body: { items },
       audit: {
         targetType: 'group_rule',
-        targetId: String(result.id),
+        targetId: items.map((r) => r.id).join(','),
         details: {
-          source: result.source_group_name,
-          implies: result.implied_group_name,
+          count: items.length,
+          rules: items.map((r) => `${r.source_group_name} -> ${r.implied_group_name}`),
         },
       },
     };

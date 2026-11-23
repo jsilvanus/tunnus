@@ -148,8 +148,8 @@ paths:
           schema: { type: boolean }
         - name: group_id
           in: query
-          description: Exact group membership
-          schema: { type: integer, minimum: 1 }
+          description: Exact group membership (group ID or unique group name)
+          schema: { $ref: '#/components/schemas/GroupRef' }
         - name: group_prefix
           in: query
           description: Membership in the exact group or any descendant group (slash-boundary aware)
@@ -495,7 +495,10 @@ paths:
           description: Created
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/GroupRule' }
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/GroupRule'
+                  - $ref: '#/components/schemas/GroupRuleBatch'
         default: { $ref: '#/components/responses/Error' }
 
   /group-rules/{ruleId}:
@@ -661,12 +664,14 @@ components:
       name: userId
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      description: User UUID or email address
+      schema: { $ref: '#/components/schemas/UserRef' }
     GroupId:
       name: groupId
       in: path
       required: true
-      schema: { type: integer, minimum: 1 }
+      description: Group numeric ID or unique group name
+      schema: { $ref: '#/components/schemas/GroupRef' }
     RuleId:
       name: ruleId
       in: path
@@ -757,6 +762,20 @@ components:
       pattern: '^[\p{L}\p{N}][\p{L}\p{N}._-]*(/[\p{L}\p{N}][\p{L}\p{N}._-]*)*$'
       description: Unicode letters and digits, `.`, `_`, `-`; `/` separates segments; no leading or trailing slash
 
+    UserRef:
+      description: User UUID or email address
+      oneOf:
+        - type: string
+          format: uuid
+        - $ref: '#/components/schemas/Email'
+
+    GroupRef:
+      description: Group numeric ID or unique group name
+      oneOf:
+        - type: integer
+          minimum: 1
+        - $ref: '#/components/schemas/GroupName'
+
     User:
       type: object
       required:
@@ -815,6 +834,10 @@ components:
         activates_at: { $ref: '#/components/schemas/NullableTimestamp' }
         disables_at: { $ref: '#/components/schemas/NullableTimestamp' }
         is_admin: { type: boolean, default: false }
+        groups:
+          type: array
+          description: Additional groups (names or IDs) to add the user to
+          items: { $ref: '#/components/schemas/GroupRef' }
 
     UserUpdate:
       type: object
@@ -858,6 +881,10 @@ components:
       properties:
         name: { $ref: '#/components/schemas/GroupName' }
         description: { type: string, maxLength: 500, default: '' }
+        members:
+          type: array
+          description: Initial members (user UUIDs or email addresses) to add to the group
+          items: { $ref: '#/components/schemas/UserRef' }
 
     GroupUpdate:
       type: object
@@ -885,7 +912,8 @@ components:
 
     GroupRule:
       type: object
-      required: [id, source_group_id, source_group_name, implied_group_id, implied_group_name, created_at]
+      required:
+        [id, source_group_id, source_group_name, implied_group_id, implied_group_name, created_at]
       additionalProperties: false
       properties:
         id: { type: integer }
@@ -897,7 +925,6 @@ components:
 
     GroupRuleCreate:
       type: object
-      required: [source_group, implied_group]
       additionalProperties: false
       properties:
         source_group:
@@ -905,11 +932,34 @@ components:
           minLength: 1
           maxLength: 200
           description: Source group name or ID
+        source_groups:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+          description: Source group names or IDs
         implied_group:
           type: string
           minLength: 1
           maxLength: 200
           description: Implied group name or ID
+        implied_groups:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+          description: Implied group names or IDs
+
+    GroupRuleBatch:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/GroupRule' }
 
     AdminToken:
       type: object

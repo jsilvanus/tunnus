@@ -634,4 +634,85 @@ describe('CLI tunnus mcp commands', () => {
     const updated = JSON.parse(okRes.files['/home/alex/.config/tunnus/mcp-state.json']);
     expect(updated.commitList).toHaveLength(0);
   });
+
+  it('allows staging createGroup followed by grantMembership with natural keys and executing them', async () => {
+    /** @type {any[]} */
+    const calls = [];
+    /** @type {any} */
+    const state = {
+      mode: 'commit-list',
+      fixedTimeUntil: null,
+      listLocked: false,
+      commitList: [],
+    };
+
+    /** @type {(op: any, args: any) => Promise<any>} */
+    const callApi = async (op, args) => {
+      calls.push({ op: op.operationId, args });
+      if (op.operationId === 'createGroup') {
+        return {
+          status: 201,
+          body: {
+            id: 10,
+            name: args.body.name,
+            description: '',
+            is_default: false,
+            member_count: 0,
+          },
+        };
+      }
+      if (op.operationId === 'grantMembership') {
+        return {
+          status: 201,
+          body: {
+            user_id: 'u-1',
+            email: args.params.userId,
+            group_id: 10,
+            group_name: args.params.groupId,
+          },
+        };
+      }
+      return { status: 200, body: {} };
+    };
+
+    const { client } = await connect({ spec, callApi, state });
+
+    // Step 1: Stage createGroup
+    const r1 = await client.callTool({
+      name: 'createGroup',
+      arguments: { body: { name: 'devs', description: 'Developer group' } },
+    });
+    expect(r1.structuredContent).toMatchObject({
+      staged: true,
+      operationId: 'createGroup',
+    });
+    expect(state.commitList).toHaveLength(1);
+    expect(state.commitList[0].body).toEqual({ name: 'devs', description: 'Developer group' });
+
+    // Step 2: Stage grantMembership using group name 'devs' and user email 'alice@example.com'
+    const r2 = await client.callTool({
+      name: 'grantMembership',
+      arguments: { groupId: 'devs', userId: 'alice@example.com' },
+    });
+    expect(r2.structuredContent).toMatchObject({
+      staged: true,
+      operationId: 'grantMembership',
+    });
+    expect(state.commitList).toHaveLength(2);
+    expect(state.commitList[1].params).toEqual({ groupId: 'devs', userId: 'alice@example.com' });
+
+    // Lock and execute
+    state.listLocked = true;
+    allowFixedTime(state, 15);
+    const execRes = await client.callTool({ name: 'executeCommitList', arguments: {} });
+    expect(execRes.structuredContent).toMatchObject({
+      executed: [
+        expect.objectContaining({ operationId: 'createGroup' }),
+        expect.objectContaining({ operationId: 'grantMembership' }),
+      ],
+    });
+    expect(calls).toHaveLength(2);
+    expect(calls[0].op).toBe('createGroup');
+    expect(calls[1].op).toBe('grantMembership');
+  });
 });

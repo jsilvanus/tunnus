@@ -16,6 +16,8 @@ import {
   inTransaction,
   isUniqueViolation,
   notFound,
+  resolveGroup,
+  resolveUser,
 } from '../handlerHelpers.js';
 
 /** @typedef {import('../types.js').HandlerContext} HandlerContext */
@@ -98,8 +100,11 @@ export const handlers = {
           AND ($2::text IS NULL OR u.email = $2)
           AND ($3::text IS NULL OR u.status = $3)
           AND ($4::boolean IS NULL OR u.is_admin = $4)
-          AND ($5::bigint IS NULL OR EXISTS (
-                SELECT 1 FROM user_effective_groups ueg WHERE ueg.user_id = u.id AND ueg.group_id = $5))
+          AND ($5::text IS NULL OR EXISTS (
+                SELECT 1 FROM user_effective_groups ueg
+                JOIN groups g ON g.id = ueg.group_id
+                WHERE ueg.user_id = u.id
+                  AND (g.name = $5 OR (CASE WHEN $5 ~ '^[0-9]+$' THEN g.id = $5::bigint ELSE false END))))
           AND ($6::text IS NULL OR EXISTS (
                 SELECT 1 FROM user_effective_groups ueg
                 JOIN groups g ON g.id = ueg.group_id
@@ -116,7 +121,7 @@ export const handlers = {
         email === undefined ? null : normalizeEmail(email),
         status ?? null,
         isAdmin ?? null,
-        groupId ?? null,
+        groupId === undefined ? null : String(groupId),
         groupPrefix ?? null,
         namePattern,
         titlePattern,
@@ -142,6 +147,7 @@ export const handlers = {
       activates_at: activatesAt,
       disables_at: disablesAt,
       is_admin: isAdmin,
+      groups,
     } = ctx.body;
     let id;
     try {
@@ -176,6 +182,16 @@ export const handlers = {
         if (updates.length > 0) {
           await client.query(`UPDATE users SET ${updates.join(', ')} WHERE id = $1`, params);
         }
+        if (Array.isArray(groups) && groups.length > 0) {
+          for (const groupRef of groups) {
+            const g = await resolveGroup(client, groupRef);
+            await client.query(
+              `INSERT INTO user_groups (user_id, group_id, granted_by) VALUES ($1, $2, $3)
+               ON CONFLICT (user_id, group_id) DO NOTHING`,
+              [newId, g.id, ctx.actor?.userId ?? null],
+            );
+          }
+        }
         return newId;
       });
     } catch (err) {
@@ -194,7 +210,8 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async getUser(ctx) {
-    const { rows } = await ctx.pool.query(USER_BY_ID, [String(ctx.params.userId)]);
+    const target = await resolveUser(ctx.pool, ctx.params.userId);
+    const { rows } = await ctx.pool.query(USER_BY_ID, [target.id]);
     if (!rows[0]) throw notFound('User not found');
     return { body: userJson(rows[0]) };
   },
@@ -207,7 +224,8 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async updateUser(ctx) {
-    const userId = String(ctx.params.userId);
+    const targetUser = await resolveUser(ctx.pool, ctx.params.userId);
+    const userId = String(targetUser.id);
     const body = ctx.body;
     const email = body.email === undefined ? null : normalizeEmail(body.email);
     const displayName = body.display_name === undefined ? null : body.display_name.trim();
@@ -217,17 +235,17 @@ export const handlers = {
       ]);
     }
 
-    const titleVal = body.title === undefined ? null : (body.title ? body.title.trim() : null);
+    const titleVal = body.title === undefined ? null : body.title ? body.title.trim() : null;
     const phoneVal =
-      body.phone_number === undefined ? null : (body.phone_number ? body.phone_number.trim() : null);
+      body.phone_number === undefined ? null : body.phone_number ? body.phone_number.trim() : null;
     const activatesVal =
       body.activates_at === undefined
         ? null
-        : (body.activates_at ? new Date(body.activates_at) : null);
+        : body.activates_at
+          ? new Date(body.activates_at)
+          : null;
     const disablesVal =
-      body.disables_at === undefined
-        ? null
-        : (body.disables_at ? new Date(body.disables_at) : null);
+      body.disables_at === undefined ? null : body.disables_at ? new Date(body.disables_at) : null;
 
     let result;
     try {
@@ -331,7 +349,8 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async deleteUser(ctx) {
-    const userId = String(ctx.params.userId);
+    const targetUser = await resolveUser(ctx.pool, ctx.params.userId);
+    const userId = String(targetUser.id);
     await inTransaction(ctx.pool, async (client) => {
       const activeAdmins = await lockActiveAdmins(client);
       const { rows } = await client.query(
@@ -352,7 +371,8 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async revokeUserSessions(ctx) {
-    const userId = String(ctx.params.userId);
+    const targetUser = await resolveUser(ctx.pool, ctx.params.userId);
+    const userId = String(targetUser.id);
     const { rowCount } = await ctx.pool.query('SELECT 1 FROM users WHERE id = $1', [userId]);
     if (!rowCount) throw notFound('User not found');
     const revoked = await revokeSessionRows(ctx.pool, userId);
@@ -368,7 +388,8 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async enableUserTotp(ctx) {
-    const userId = String(ctx.params.userId);
+    const targetUser = await resolveUser(ctx.pool, ctx.params.userId);
+    const userId = String(targetUser.id);
     const { rows } = await ctx.pool.query('SELECT id, email FROM users WHERE id = $1', [userId]);
     const user = rows[0];
     if (!user) throw notFound('User not found');
@@ -401,7 +422,8 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async disableUserTotp(ctx) {
-    const userId = String(ctx.params.userId);
+    const targetUser = await resolveUser(ctx.pool, ctx.params.userId);
+    const userId = String(targetUser.id);
     const { rowCount } = await ctx.pool.query(
       `UPDATE users
           SET totp_secret_enc = NULL,

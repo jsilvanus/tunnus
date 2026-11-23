@@ -69,3 +69,44 @@ export async function inTransaction(pool, fn) {
     client.release();
   }
 }
+
+/**
+ * Resolve a group reference (integer id or name) to a group row ({ id, name }).
+ * @param {any} db
+ * @param {string | number} ref
+ * @returns {Promise<{ id: number, name: string }>}
+ */
+export async function resolveGroup(db, ref) {
+  const str = String(ref).trim();
+  if (/^\d+$/.test(str)) {
+    const { rows } = await db.query('SELECT id, name FROM groups WHERE id = $1', [Number(str)]);
+    if (rows[0]) return { id: Number(rows[0].id), name: rows[0].name };
+  }
+  const { rows } = await db.query('SELECT id, name FROM groups WHERE name = $1', [str]);
+  if (rows[0]) return { id: Number(rows[0].id), name: rows[0].name };
+  throw notFound(`Group not found: ${ref}`);
+}
+
+/**
+ * Resolve a user reference (UUID or email address) to a user row ({ id, email }).
+ * @param {any} db
+ * @param {string} ref
+ * @returns {Promise<{ id: string, email: string }>}
+ */
+export async function resolveUser(db, ref) {
+  const str = String(ref).trim();
+  if (str.includes('@')) {
+    const { rows } = await db.query('SELECT id, email FROM users WHERE email = $1', [
+      str.toLowerCase(),
+    ]);
+    if (rows[0]) return { id: String(rows[0].id), email: rows[0].email };
+  } else {
+    const { rows } = await db.query('SELECT id, email FROM users WHERE id = $1', [str]);
+    if (rows[0]) return { id: String(rows[0].id), email: rows[0].email };
+    const byEmail = await db.query('SELECT id, email FROM users WHERE email = $1', [
+      str.toLowerCase(),
+    ]);
+    if (byEmail.rows[0]) return { id: String(byEmail.rows[0].id), email: byEmail.rows[0].email };
+  }
+  throw notFound(`User not found: ${ref}`);
+}
