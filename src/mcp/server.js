@@ -51,12 +51,13 @@ export const INSTRUCTIONS = serverInstructions();
  * The JSON Schema of a tool's input: path and query parameters as properties, the request body as `body`.
  * @param {ClientOperation} op
  */
-function inputSchemaFor(op) {
+function inputSchemaFor(op, identityMode = 'open') {
   /** @type {Record<string, any>} */
   const properties = {};
   /** @type {string[]} */
   const required = [];
   for (const p of [...op.pathParams, ...op.queryParams]) {
+    if (identityMode !== 'open' && p.sensitiveUserSearch) continue;
     properties[p.name] = p.description ? { ...p.schema, description: p.description } : p.schema;
     if (p.required) required.push(p.name);
   }
@@ -155,7 +156,7 @@ export const COMMIT_LIST_TOOLS = /** @type {McpTool[]} */ ([
  * @param {any} spec
  * @returns {McpTool[]}
  */
-export function mcpTools(spec) {
+export function mcpTools(spec, identityMode = 'open') {
   const ops = clientOperations(spec)
     .filter((op) => op.mcp)
     .map((op) => ({
@@ -175,6 +176,61 @@ function errorResult(text) {
 }
 
 /**
+ * Walk an input/output value using only explicit OpenAPI identity annotations.
+ * @param {any} value
+ * @param {any} schema
+ * @param {(value: string) => Promise<string>} convert
+ * @param {'input' | 'output'} direction
+ */
+async function mapIdentitySchema(value, schema, convert, direction) {
+  if (value === null || value === undefined || !schema) return value;
+  if (direction === 'input' && schema['x-tunnus-user-reference'] === true) {
+    if (typeof value !== 'string') throw new Error('Invalid user reference');
+    return convert(value);
+  }
+  if (direction === 'output' && schema['x-tunnus-user-id'] === true) {
+    if (typeof value !== 'string' || !value) return value;
+    return convert(value);
+  }
+  if (Array.isArray(value)) {
+    return Promise.all(value.map((item) => mapIdentitySchema(item, schema.items, convert, direction)));
+  }
+  if (typeof value !== 'object') return value;
+
+  const out = { ...value };
+  if (direction === 'output' && schema['x-tunnus-user-record'] === true) {
+    if (typeof out.id === 'string') out.id = await convert(out.id);
+    for (const key of ['email', 'display_name', 'title', 'phone_number']) delete out[key];
+  }
+  if (direction === 'output' && schema['x-tunnus-membership-record'] === true) {
+    if (typeof out.user_id === 'string') out.user_id = await convert(out.user_id);
+    if (typeof out.granted_by === 'string') out.granted_by = await convert(out.granted_by);
+    delete out.email;
+    delete out.display_name;
+  }
+  for (const [key, childSchema] of Object.entries(schema.properties ?? {})) {
+    if (Object.hasOwn(out, key)) out[key] = await mapIdentitySchema(out[key], childSchema, convert, direction);
+  }
+  return out;
+}
+
+/** Apply identity conversion to an operation's declared path/query/body parameters. */
+async function mapOperationInput(op, params, body, resolve) {
+  const mapped = { ...params };
+  for (const p of [...op.pathParams, ...op.queryParams]) {
+    if (Object.hasOwn(mapped, p.name)) mapped[p.name] = await mapIdentitySchema(mapped[p.name], p.schema, resolve, 'input');
+  }
+  const mappedBody = op.bodySchema ? await mapIdentitySchema(body, op.bodySchema, resolve, 'input') : body;
+  return { params: mapped, body: mappedBody };
+}
+
+/** Project an API response using the operation's explicitly annotated response schema. */
+async function projectOperationOutput(op, body, represent) {
+  if (!op?.responseSchema) return body;
+  return mapIdentitySchema(body, op.responseSchema, represent, 'output');
+}
+
+/**
  * An MCP server over the admin API, with the low-level SDK `Server`.
  * `callApi` performs one operation: `(op, { params, body }) => { status, body }`, and throws ApiError.
  * @param {{
@@ -186,7 +242,7 @@ function errorResult(text) {
  *   issuer?: string,
  *   accountUrl?: string,
  *   userId?: string,
- *   actor?: { userId?: string, email?: string, label?: string } | null,
+ *   actor?: { userId?: string, email?: string, label?: string } | null,\n *   identity?: { mode: 'open' | 'pseudo_ref' | 'ref_only', resolveUser: (value: string) => Promise<string>, representUser: (value: string) => Promise<string> } | null,
  *   loadState?: typeof loadMcpState,
  *   saveState?: typeof saveMcpState,
  *   readFile?: (path: string) => string,
@@ -204,13 +260,14 @@ export function createMcpServer({
   accountUrl,
   userId,
   actor,
+  identity = null,
   loadState = loadMcpState,
   saveState = saveMcpState,
   readFile,
   writeFile,
   mkdir,
 }) {
-  const tools = mcpTools(spec);
+  const identityMode = identity?.mode ?? 'open';\n  const tools = mcpTools(spec, identityMode);
   const byName = new Map(tools.map((t) => [t.name, t]));
   const operations = clientOperations(spec);
   const opsById = new Map(operations.map((o) => [o.operationId, o]));
@@ -264,13 +321,12 @@ export function createMcpServer({
       const state = await getState();
       const remainingSeconds = Math.round(getFixedTimeRemainingMs(state) / 1000);
       const running = isFixedTimeRunning(state);
-      const data = {
-        mode: state.mode ?? (running ? 'direct' : 'commit-list'),
+      const commitList = identityMode === 'open' ? state.commitList : await Promise.all(state.commitList.map(async (item) => {\n        const op = opsById.get(item.operationId);\n        if (!op) return { id: item.id, operationId: item.operationId, command: item.command, summary: item.summary, stagedAt: item.stagedAt };\n        const mapped = await mapOperationInput(op, item.params ?? {}, item.body, identity.resolveUser);\n        return { ...item, params: await mapIdentitySchema(mapped.params, { type: 'object', properties: Object.fromEntries([...op.pathParams, ...op.queryParams].map((p) => [p.name, p.schema])) }, identity.representUser, 'output'), body: await mapIdentitySchema(mapped.body, op.bodySchema, identity.representUser, 'output'), stagedBy: item.stagedBy ? { label: item.stagedBy.label ?? 'MCP client' } : null };\n      }));\n      const data = {\n        mode: state.mode ?? (running ? 'direct' : 'commit-list'),
         fixedTimeRunning: running,
         fixedTimeUntil: state.fixedTimeUntil,
         remainingSeconds,
         listLocked: Boolean(state.listLocked),
-        commitList: state.commitList,
+        commitList,
       };
       return {
         content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
@@ -320,7 +376,7 @@ export function createMcpServer({
           content: [
             { type: 'text', text: `Executed ${res.executed.length} action(s) from commit list.` },
           ],
-          structuredContent: { executed: res.executed },
+          structuredContent: { executed: identityMode === 'open' ? res.executed : await Promise.all(res.executed.map(async (item) => ({ ...item, body: await projectOperationOutput(opsById.get(item.operationId), item.body, identity.representUser) }))) },
         };
       }
 
@@ -335,12 +391,11 @@ export function createMcpServer({
         }
         try {
           const res = await callApi(op, { params: item.params, body: item.body });
-          executed.push({
-            id: item.id,
+          const safeBody = identityMode === 'open' ? res.body : await projectOperationOutput(op, res.body, identity.representUser);\n          executed.push({\n            id: item.id,
             operationId: item.operationId,
             command: item.command,
             status: res.status,
-            body: res.body,
+            body: safeBody,
           });
           state.commitList.shift();
           await persistState(state);
@@ -366,8 +421,7 @@ export function createMcpServer({
       throw new McpError(ErrorCode.InternalError, `No operation for ${tool.name}`);
     }
 
-    const { body, ...params } = args;
-    const isMutative = tool.operation.method !== 'get';
+    const { body, ...rawParams } = args;\n    let params = rawParams;\n    let mappedBody = body;\n    if (identityMode !== 'open') {\n      try {\n        const mapped = await mapOperationInput(tool.operation, rawParams, body, identity.resolveUser);\n        params = mapped.params;\n        mappedBody = mapped.body;\n      } catch (err) {\n        return errorResult(err?.code === 'target_not_linked' ? 'This identity is not linked to a Tunnus account.' : 'Unknown, expired, or invalid user reference. Use a valid typed reference from the pseudonyms page.');\n      }\n    }\n    const isMutative = tool.operation.method !== 'get';
 
     if (isMutative) {
       const state = await getState();
@@ -376,9 +430,9 @@ export function createMcpServer({
         try {
           const res = await callApi(tool.operation, {
             params,
-            body: tool.operation.bodySchema ? body : undefined,
+            body: tool.operation.bodySchema ? mappedBody : undefined,
           });
-          const structured = res.body ?? {};
+          const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, identity.representUser);
           return {
             content: [{ type: 'text', text: JSON.stringify(structured, null, 2) }],
             structuredContent: structured,
@@ -409,8 +463,8 @@ export function createMcpServer({
         method: tool.operation.method,
         path: tool.operation.path,
         params,
-        body: tool.operation.bodySchema ? body : undefined,
-        stagedBy: actor ?? null,
+        body: tool.operation.bodySchema ? mappedBody : undefined,
+        stagedBy: identityMode === 'open' ? (actor ?? null) : (actor ? { label: actor.label ?? 'MCP client' } : null),
       };
 
       let stagedId;
@@ -449,7 +503,7 @@ export function createMcpServer({
         params,
         body: tool.operation.bodySchema ? body : undefined,
       });
-      const structured = res.body ?? {};
+      const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, identity.representUser);
       return {
         content: [{ type: 'text', text: JSON.stringify(structured, null, 2) }],
         structuredContent: structured,
