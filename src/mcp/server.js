@@ -163,7 +163,8 @@ export function mcpTools(spec, identityMode = 'open') {
       name: op.operationId,
       title: op.summary,
       description: op.description ? `${op.summary}\n\n${op.description}` : op.summary,
-      inputSchema: inputSchemaFor(op),
+      description: [op.summary, op.description, identityMode === 'pseudo_ref' ? 'User references: use pseudo:<alias> or ref:<handle>. Raw names, emails, and UUIDs are not accepted.' : identityMode === 'ref_only' ? 'User references: use ref:<handle> only. Pseudonyms, raw names, emails, and UUIDs are not accepted.' : ''].filter(Boolean).join('\n\n'),
+      inputSchema: inputSchemaFor(op, identityMode),
       annotations: annotationsFor(op),
       operation: op,
     }));
@@ -267,7 +268,8 @@ export function createMcpServer({
   writeFile,
   mkdir,
 }) {
-  const identityMode = identity?.mode ?? 'open';\n  const tools = mcpTools(spec, identityMode);
+  const identityMode = identity?.mode ?? 'open';
+  const tools = mcpTools(spec, identityMode);
   const byName = new Map(tools.map((t) => [t.name, t]));
   const operations = clientOperations(spec);
   const opsById = new Map(operations.map((o) => [o.operationId, o]));
@@ -321,7 +323,46 @@ export function createMcpServer({
       const state = await getState();
       const remainingSeconds = Math.round(getFixedTimeRemainingMs(state) / 1000);
       const running = isFixedTimeRunning(state);
-      const commitList = identityMode === 'open' ? state.commitList : await Promise.all(state.commitList.map(async (item) => {\n        const op = opsById.get(item.operationId);\n        if (!op) return { id: item.id, operationId: item.operationId, command: item.command, summary: item.summary, stagedAt: item.stagedAt };\n        const mapped = await mapOperationInput(op, item.params ?? {}, item.body, identity.resolveUser);\n        return { ...item, params: await mapIdentitySchema(mapped.params, { type: 'object', properties: Object.fromEntries([...op.pathParams, ...op.queryParams].map((p) => [p.name, p.schema])) }, identity.representUser, 'output'), body: await mapIdentitySchema(mapped.body, op.bodySchema, identity.representUser, 'output'), stagedBy: item.stagedBy ? { label: item.stagedBy.label ?? 'MCP client' } : null };\n      }));\n      const data = {\n        mode: state.mode ?? (running ? 'direct' : 'commit-list'),
+      const commitList =
+        identityMode === 'open'
+          ? state.commitList
+          : await Promise.all(
+              state.commitList.map(async (item) => {
+                const op = opsById.get(item.operationId);
+                if (!op) {
+                  return {
+                    id: item.id,
+                    operationId: item.operationId,
+                    command: item.command,
+                    summary: item.summary,
+                    stagedAt: item.stagedAt,
+                  };
+                }
+                const paramSchema = {
+                  type: 'object',
+                  properties: Object.fromEntries(
+                    [...op.pathParams, ...op.queryParams].map((p) => [p.name, p.schema]),
+                  ),
+                };
+                return {
+                  ...item,
+                  params: await mapIdentitySchema(
+                    item.params ?? {},
+                    paramSchema,
+                    identity.representUser,
+                    'output',
+                  ),
+                  body: await mapIdentitySchema(
+                    item.body,
+                    op.bodySchema,
+                    identity.representUser,
+                    'output',
+                  ),
+                  stagedBy: item.stagedBy ? { label: item.stagedBy.label ?? 'MCP client' } : null,
+                };
+              }),
+            );
+      const data = {\n        mode: state.mode ?? (running ? 'direct' : 'commit-list'),
         fixedTimeRunning: running,
         fixedTimeUntil: state.fixedTimeUntil,
         remainingSeconds,
