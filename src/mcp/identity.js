@@ -257,7 +257,7 @@ export async function createMcpIdentitySubject(pool, { ownerUserId, userId = nul
  */
 export async function addMcpPseudonym(pool, { ownerUserId, subjectId, pseudonym, preferred = false }) {
   const value = pseudonym.trim();
-  if (!value || value.length > 100 || /[\\r\\n]/.test(value)) throw new Error('Invalid pseudonym');
+  if (!value || value.length > 100 || /[\r\n]/.test(value)) throw new Error('Invalid pseudonym');
   const normalized = normalizeAlias(value);
   const client = await pool.connect();
   try {
