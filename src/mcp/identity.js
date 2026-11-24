@@ -165,7 +165,7 @@ export async function representMcpUser(pool, scope, userId, mode, options = {}) 
  */
 export async function listMcpIdentityDirectory(pool, ownerUserId) {
   const { rows } = await pool.query(
-    `SELECT s.id AS subject_id, s.tunnus_user_id, s.label, s.notes, s.created_at,
+    `SELECT s.id AS subject_id, s.tunnus_user_id, s.label, s.notes, s.created_at, u.email, u.display_name,
             COALESCE(jsonb_agg(DISTINCT jsonb_build_object(
               'id', p.id, 'pseudonym', p.pseudonym, 'is_preferred', p.is_preferred
             )) FILTER (WHERE p.id IS NOT NULL), '[]'::jsonb) AS pseudonyms,
@@ -175,10 +175,11 @@ export async function listMcpIdentityDirectory(pool, ownerUserId) {
               'expires_at', r.expires_at, 'revoked_at', r.revoked_at
             )) FILTER (WHERE r.id IS NOT NULL), '[]'::jsonb) AS refs
        FROM mcp_identity_subjects s
+       LEFT JOIN users u ON u.id = s.tunnus_user_id
        LEFT JOIN mcp_pseudonyms p ON p.subject_id = s.id
        LEFT JOIN mcp_identity_refs r ON r.subject_id = s.id
       WHERE s.owner_user_id = $1
-      GROUP BY s.id
+      GROUP BY s.id, u.email, u.display_name
       ORDER BY s.created_at DESC`,
     [ownerUserId],
   );
@@ -332,4 +333,34 @@ export async function createMcpIdentityRefForSubject(pool, input, options = {}) 
     [scope.ownerUserId, scope.authKind, scope.authClientKey, input.subjectId, handle, expiresAt],
   );
   return rows[0];
+}
+
+/**
+ * Ensure an owner-directory subject exists for a linked account, without requiring an MCP client.
+ * @param {import('pg').Pool} pool
+ * @param {{ ownerUserId: string, userId: string }} input
+ */
+export async function ensureMcpIdentitySubjectForOwner(pool, { ownerUserId, userId }) {
+  const { rows } = await pool.query(
+    `INSERT INTO mcp_identity_subjects (owner_user_id, tunnus_user_id)
+     VALUES ($1, $2)
+     ON CONFLICT (owner_user_id, tunnus_user_id) WHERE tunnus_user_id IS NOT NULL
+     DO UPDATE SET updated_at = now()
+     RETURNING id, owner_user_id, tunnus_user_id, label, notes`,
+    [ownerUserId, userId],
+  );
+  return rows[0];
+}
+
+/**
+ * Delete one pseudonym belonging to an owner.
+ * @param {import('pg').Pool} pool
+ * @param {{ ownerUserId: string, pseudonymId: string }} input
+ */
+export async function deleteMcpPseudonym(pool, { ownerUserId, pseudonymId }) {
+  const { rowCount } = await pool.query(
+    'DELETE FROM mcp_pseudonyms WHERE id = $1 AND owner_user_id = $2',
+    [pseudonymId, ownerUserId],
+  );
+  return Boolean(rowCount);
 }
