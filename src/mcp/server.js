@@ -240,7 +240,8 @@ async function projectOperationOutput(op, body, represent) {
  *   issuer?: string,
  *   accountUrl?: string,
  *   userId?: string,
- *   actor?: { userId?: string, email?: string, label?: string } | null,\n *   identity?: { mode: 'open' | 'pseudo_ref' | 'ref_only', resolveUser: (value: string) => Promise<string>, representUser: (value: string) => Promise<string> } | null,
+ *   actor?: { userId?: string, email?: string, label?: string } | null,
+ *   identity?: { mode: 'open' | 'pseudo_ref' | 'ref_only', resolveUser: (value: string) => Promise<string>, representUser: (value: string) => Promise<string> } | null,
  *   loadState?: typeof loadMcpState,
  *   saveState?: typeof saveMcpState,
  *   readFile?: (path: string) => string,
@@ -359,7 +360,8 @@ export function createMcpServer({
                 };
               }),
             );
-      const data = {\n        mode: state.mode ?? (running ? 'direct' : 'commit-list'),
+      const data = {
+        mode: state.mode ?? (running ? 'direct' : 'commit-list'),
         fixedTimeRunning: running,
         fixedTimeUntil: state.fixedTimeUntil,
         remainingSeconds,
@@ -429,7 +431,9 @@ export function createMcpServer({
         }
         try {
           const res = await callApi(op, { params: item.params, body: item.body });
-          const safeBody = identityMode === 'open' ? res.body : await projectOperationOutput(op, res.body, identity.representUser);\n          executed.push({\n            id: item.id,
+          const safeBody = identityMode === 'open' ? res.body : await projectOperationOutput(op, res.body, identity.representUser);
+          executed.push({
+            id: item.id,
             operationId: item.operationId,
             command: item.command,
             status: res.status,
@@ -459,7 +463,23 @@ export function createMcpServer({
       throw new McpError(ErrorCode.InternalError, `No operation for ${tool.name}`);
     }
 
-    const { body, ...rawParams } = args;\n    let params = rawParams;\n    let mappedBody = body;\n    if (identityMode !== 'open') {\n      try {\n        const mapped = await mapOperationInput(tool.operation, rawParams, body, identity.resolveUser);\n        params = mapped.params;\n        mappedBody = mapped.body;\n      } catch (err) {\n        return errorResult(err?.code === 'target_not_linked' ? 'This identity is not linked to a Tunnus account.' : 'Unknown, expired, or invalid user reference. Use a valid typed reference from the pseudonyms page.');\n      }\n    }\n    const isMutative = tool.operation.method !== 'get';
+    const { body, ...rawParams } = args;
+    let params = rawParams;
+    let mappedBody = body;
+    if (identityMode !== 'open') {
+      try {
+        const mapped = await mapOperationInput(tool.operation, rawParams, body, identity.resolveUser);
+        params = mapped.params;
+        mappedBody = mapped.body;
+      } catch (err) {
+        return errorResult(
+          err?.code === 'target_not_linked'
+            ? 'This identity is not linked to a Tunnus account.'
+            : 'Unknown, expired, or invalid user reference. Use a valid typed reference from the pseudonyms page.',
+        );
+      }
+    }
+    const isMutative = tool.operation.method !== 'get';
 
     if (isMutative) {
       const state = await getState();
