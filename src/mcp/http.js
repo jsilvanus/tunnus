@@ -126,6 +126,14 @@ export function createMcpHttpApp({
     try {
       const verified = await oauth.verifyToken(token);
       if (!verified.ok) return void sendUnauthorized(res, 'invalid_token');
+      if (typeof verified.claims?.client_id !== 'string' || !verified.claims.client_id) {
+        return void sendUnauthorized(res, 'invalid_token');
+      }
+      res.locals.identityScope = {
+        ownerUserId: verified.sub,
+        authKind: 'oauth',
+        authClientKey: verified.claims.client_id,
+      };
       res.locals.token = token;
       res.locals.user = { id: verified.sub };
       res.locals.actor = {
