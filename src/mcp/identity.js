@@ -233,3 +233,103 @@ export async function revokeMcpIdentityRef(pool, { ownerUserId, refId }) {
   );
   return Boolean(rowCount);
 }
+
+/**
+ * Create an owner-only identity subject, linked to a Tunnus account or external.
+ * @param {import('pg').Pool} pool
+ * @param {{ ownerUserId: string, userId?: string | null, label?: string, notes?: string }} input
+ */
+export async function createMcpIdentitySubject(pool, { ownerUserId, userId = null, label = '', notes = '' }) {
+  const { rows } = await pool.query(
+    `INSERT INTO mcp_identity_subjects (owner_user_id, tunnus_user_id, label, notes)
+     VALUES ($1, $2, $3, $4)
+     RETURNING id, owner_user_id, tunnus_user_id, label, notes`,
+    [ownerUserId, userId, label.trim(), notes.trim()],
+  );
+  return rows[0];
+}
+
+/**
+ * Add an alias to an owner-owned subject. Preferred aliases are unique per subject.
+ * @param {import('pg').Pool} pool
+ * @param {{ ownerUserId: string, subjectId: string, pseudonym: string, preferred?: boolean }} input
+ */
+export async function addMcpPseudonym(pool, { ownerUserId, subjectId, pseudonym, preferred = false }) {
+  const value = pseudonym.trim();
+  if (!value || value.length > 100 || /[\\r\\n]/.test(value)) throw new Error('Invalid pseudonym');
+  const normalized = normalizeAlias(value);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const owned = await client.query(
+      'SELECT id FROM mcp_identity_subjects WHERE id = $1 AND owner_user_id = $2 FOR UPDATE',
+      [subjectId, ownerUserId],
+    );
+    if (!owned.rows[0]) throw new Error('Identity subject not found');
+    if (preferred) {
+      await client.query(
+        'UPDATE mcp_pseudonyms SET is_preferred = false WHERE owner_user_id = $1 AND subject_id = $2',
+        [ownerUserId, subjectId],
+      );
+    }
+    const { rows } = await client.query(
+      `INSERT INTO mcp_pseudonyms (owner_user_id, subject_id, pseudonym, normalized_pseudonym, is_preferred)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, pseudonym, is_preferred`,
+      [ownerUserId, subjectId, value, normalized, Boolean(preferred)],
+    );
+    await client.query('COMMIT');
+    return rows[0];
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Link an external subject to an existing Tunnus user. A subject or user cannot be linked twice
+ * within the same owner directory.
+ * @param {import('pg').Pool} pool
+ * @param {{ ownerUserId: string, subjectId: string, userId: string }} input
+ */
+export async function linkMcpIdentitySubject(pool, { ownerUserId, subjectId, userId }) {
+  const { rows } = await pool.query(
+    `UPDATE mcp_identity_subjects s
+        SET tunnus_user_id = $3, updated_at = now()
+      WHERE s.id = $1 AND s.owner_user_id = $2 AND s.tunnus_user_id IS NULL
+        AND EXISTS (SELECT 1 FROM users u WHERE u.id = $3)
+        AND NOT EXISTS (
+          SELECT 1 FROM mcp_identity_subjects other
+           WHERE other.owner_user_id = $2 AND other.tunnus_user_id = $3
+        )
+      RETURNING s.id, s.tunnus_user_id`,
+    [subjectId, ownerUserId, userId],
+  );
+  return rows[0] ?? null;
+}
+
+/**
+ * Create a reference for an existing owner-owned subject and a specific credential.
+ * @param {import('pg').Pool} pool
+ * @param {{ ownerUserId: string, authKind: 'oauth' | 'admin_token', authClientKey: string, subjectId: string }} input
+ * @param {{ ttlMs?: number }} [options]
+ */
+export async function createMcpIdentityRefForSubject(pool, input, options = {}) {
+  const scope = { ownerUserId: input.ownerUserId, authKind: input.authKind, authClientKey: input.authClientKey };
+  assertScope(scope);
+  const owned = await pool.query(
+    'SELECT id FROM mcp_identity_subjects WHERE id = $1 AND owner_user_id = $2',
+    [input.subjectId, input.ownerUserId],
+  );
+  if (!owned.rows[0]) throw new Error('Identity subject not found');
+  const handle = randomBytes(32).toString('base64url');
+  const expiresAt = new Date(Date.now() + (options.ttlMs ?? DEFAULT_MCP_REF_TTL_MS));
+  const { rows } = await pool.query(
+    `INSERT INTO mcp_identity_refs (owner_user_id, auth_kind, auth_client_key, subject_id, handle, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, handle, expires_at`,
+    [scope.ownerUserId, scope.authKind, scope.authClientKey, input.subjectId, handle, expiresAt],
+  );
+  return rows[0];
+}
