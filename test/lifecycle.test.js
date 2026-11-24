@@ -15,36 +15,24 @@ describe('account lifecycle and status checks', () => {
     expect(isAccountActive({ status: 'active' }, now)).toBe(true);
 
     // Future activation -> inactive
-    expect(
-      isAccountActive(
-        { status: 'active', activates_at: '2026-11-22T12:00:00Z' },
-        now,
-      ),
-    ).toBe(false);
+    expect(isAccountActive({ status: 'active', activates_at: '2026-11-22T12:00:00Z' }, now)).toBe(
+      false,
+    );
 
     // Past activation -> active
-    expect(
-      isAccountActive(
-        { status: 'active', activates_at: '2026-11-22T08:00:00Z' },
-        now,
-      ),
-    ).toBe(true);
+    expect(isAccountActive({ status: 'active', activates_at: '2026-11-22T08:00:00Z' }, now)).toBe(
+      true,
+    );
 
     // Past disabling -> inactive
-    expect(
-      isAccountActive(
-        { status: 'active', disables_at: '2026-11-22T09:00:00Z' },
-        now,
-      ),
-    ).toBe(false);
+    expect(isAccountActive({ status: 'active', disables_at: '2026-11-22T09:00:00Z' }, now)).toBe(
+      false,
+    );
 
     // Future disabling -> active
-    expect(
-      isAccountActive(
-        { status: 'active', disables_at: '2026-11-22T15:00:00Z' },
-        now,
-      ),
-    ).toBe(true);
+    expect(isAccountActive({ status: 'active', disables_at: '2026-11-22T15:00:00Z' }, now)).toBe(
+      true,
+    );
   });
 
   it('createFindAccount excludes title and phone_number from OIDC claims and rejects inactive accounts', async () => {
@@ -201,7 +189,10 @@ describe('account lifecycle and status checks', () => {
       };
 
       const result = await dispatchAllBackchannelLogouts({
-        config: /** @type {any} */ ({ issuer: 'https://auth.example.org', keyEncryptionSecret: '01234567890123456789012345678901' }),
+        config: /** @type {any} */ ({
+          issuer: 'https://auth.example.org',
+          keyEncryptionSecret: '01234567890123456789012345678901',
+        }),
         pool,
         getProvider: () => provider,
         userId: 'u-123',
@@ -260,7 +251,10 @@ describe('account lifecycle and status checks', () => {
 
     const disabledCount = await autoDisableExpiredUsers({
       pool,
-      config: /** @type {any} */ ({ issuer: 'https://auth.example.org', keyEncryptionSecret: '01234567890123456789012345678901' }),
+      config: /** @type {any} */ ({
+        issuer: 'https://auth.example.org',
+        keyEncryptionSecret: '01234567890123456789012345678901',
+      }),
       logger,
       now,
     });

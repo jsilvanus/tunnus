@@ -33,14 +33,16 @@ describe('user directory and autofill account search', () => {
       },
     };
 
-    const res = await handlers.listUsers(/** @type {any} */ ({
-      pool,
-      query: { q: 'Kirkkoherra', limit: 10 },
-    }));
+    const res = await handlers.listUsers(
+      /** @type {any} */ ({
+        pool,
+        query: { q: 'Kirkkoherra', limit: 10 },
+      }),
+    );
 
     expect(capturedParams[0]).toBe('%Kirkkoherra%');
-    expect((/** @type {any} */ (res.body)).items).toHaveLength(1);
-    expect((/** @type {any} */ (res.body)).items[0]).toEqual({
+    expect(/** @type {any} */ (res.body).items).toHaveLength(1);
+    expect(/** @type {any} */ (res.body).items[0]).toEqual({
       id: 'u-1',
       email: 'anna.pastori@example.org',
       display_name: 'Anna Pastori',
@@ -70,16 +72,18 @@ describe('user directory and autofill account search', () => {
       },
     };
 
-    await handlers.listUsers(/** @type {any} */ ({
-      pool,
-      query: {
-        name: 'Anna',
-        title: 'Pastori',
-        email: 'anna@example.org',
-        status: 'active',
-        limit: 25,
-      },
-    }));
+    await handlers.listUsers(
+      /** @type {any} */ ({
+        pool,
+        query: {
+          name: 'Anna',
+          title: 'Pastori',
+          email: 'anna@example.org',
+          status: 'active',
+          limit: 25,
+        },
+      }),
+    );
 
     // params: pattern(q), email, status, isAdmin, groupId, groupPrefix, namePattern, titlePattern, after, limit+1
     expect(capturedParams[1]).toBe('anna@example.org');

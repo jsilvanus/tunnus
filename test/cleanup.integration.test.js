@@ -471,6 +471,8 @@ describe('tunnus-admin cleanup', () => {
     expect(Object.keys(result).sort()).toEqual([
       'auditDeleted',
       'auditIpsCleared',
+      'autoActivated',
+      'autoDisabled',
       'codes',
       'deleted',
       'errors',

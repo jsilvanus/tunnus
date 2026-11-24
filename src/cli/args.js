@@ -59,8 +59,8 @@ export function toFlagName(key) {
  * @returns {FlagDef['type']}
  */
 export function scalarType(schema) {
-  if (Array.isArray(schema?.oneOf)) {
-    for (const sub of schema.oneOf) {
+  if (Array.isArray(schema?.oneOf ?? schema?.anyOf)) {
+    for (const sub of schema.oneOf ?? schema.anyOf) {
       const t = scalarType(sub);
       if (t === 'integer' || t === 'number' || t === 'boolean') return t;
     }

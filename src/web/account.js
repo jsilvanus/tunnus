@@ -614,9 +614,7 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
     const code = String(req.body.code ?? '');
     const result = await verifyCode(pool, config.keyEncryptionSecret, chal.uid, code);
     if (result.ok) {
-      const { rows } = await pool.query('SELECT id FROM users WHERE email = $1', [
-        result.email,
-      ]);
+      const { rows } = await pool.query('SELECT id FROM users WHERE email = $1', [result.email]);
       const user = rows[0];
       if (!user) return void res.redirect(303, `${config.basePath}/account`);
 
