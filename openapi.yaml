@@ -64,6 +64,7 @@ paths:
       description: Lists active tokens (not revoked, not expired) unless `include_inactive` is true. Token values are never returned.
       parameters:
         - name: user_id
+          x-tunnus-user-reference: true
           in: query
           schema: { type: string, format: uuid }
         - name: include_inactive
@@ -599,6 +600,7 @@ paths:
           description: Exact action, or a prefix ending in `*` (for example `admin.*`)
           schema: { type: string, minLength: 1, maxLength: 100 }
         - name: actor_user_id
+          x-tunnus-user-reference: true
           in: query
           schema: { type: string, format: uuid }
         - name: target_type
@@ -977,12 +979,16 @@ components:
       additionalProperties: false
       properties:
         id: { type: string, format: uuid }
-        user_id: { type: string, format: uuid }
+        user_id:
+          type: string
+          format: uuid
+          x-tunnus-user-id: true
         label: { type: string }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         created_by:
           type: [string, 'null']
           format: uuid
+          x-tunnus-user-id: true
           description: Null for tokens made by `tunnus-admin bootstrap`
         expires_at: { $ref: '#/components/schemas/Timestamp' }
         last_used_at: { $ref: '#/components/schemas/NullableTimestamp' }
