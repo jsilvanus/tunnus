@@ -6,7 +6,8 @@ CREATE TABLE IF NOT EXISTS mcp_identity_subjects (
   label text NOT NULL DEFAULT '',
   notes text NOT NULL DEFAULT '',
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (id, owner_user_id)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS mcp_identity_subjects_linked_user_idx
@@ -18,12 +19,13 @@ CREATE INDEX IF NOT EXISTS mcp_identity_subjects_owner_idx
 CREATE TABLE IF NOT EXISTS mcp_pseudonyms (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  subject_id uuid NOT NULL REFERENCES mcp_identity_subjects(id) ON DELETE CASCADE,
+  subject_id uuid NOT NULL,
   pseudonym text NOT NULL,
   normalized_pseudonym text NOT NULL,
   is_preferred boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (owner_user_id, normalized_pseudonym)
+  UNIQUE (owner_user_id, normalized_pseudonym),
+  FOREIGN KEY (subject_id, owner_user_id) REFERENCES mcp_identity_subjects(id, owner_user_id) ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS mcp_pseudonyms_one_preferred_idx
   ON mcp_pseudonyms (owner_user_id, subject_id)
@@ -45,12 +47,13 @@ CREATE TABLE IF NOT EXISTS mcp_identity_refs (
   owner_user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   auth_kind text NOT NULL CHECK (auth_kind IN ('oauth', 'admin_token')),
   auth_client_key text NOT NULL,
-  subject_id uuid NOT NULL REFERENCES mcp_identity_subjects(id) ON DELETE CASCADE,
+  subject_id uuid NOT NULL,
   handle text NOT NULL UNIQUE,
   created_at timestamptz NOT NULL DEFAULT now(),
   expires_at timestamptz NOT NULL,
   revoked_at timestamptz,
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (subject_id, owner_user_id) REFERENCES mcp_identity_subjects(id, owner_user_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS mcp_identity_refs_scope_idx
   ON mcp_identity_refs (owner_user_id, auth_kind, auth_client_key, subject_id, expires_at)
