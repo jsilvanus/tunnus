@@ -287,16 +287,22 @@ export function createMcpServer({
   mkdir,
 }) {
   const identityMode = identity?.mode ?? 'open';
-  const resolveIdentityUser =
-    identity?.resolveUser ??
-    (async () => {
-      throw new Error('Restricted MCP identity context is unavailable');
-    });
-  const representIdentityUser =
-    identity?.representUser ??
-    (async () => {
-      throw new Error('Restricted MCP identity context is unavailable');
-    });
+  const resolvedIdentityCache = new Map();
+  const representedIdentityCache = new Map();
+  const resolveIdentityUser = async (value) => {
+    if (resolvedIdentityCache.has(value)) return resolvedIdentityCache.get(value);
+    if (!identity?.resolveUser) throw new Error('Restricted MCP identity context is unavailable');
+    const resolved = await identity.resolveUser(value);
+    resolvedIdentityCache.set(value, resolved);
+    return resolved;
+  };
+  const representIdentityUser = async (value) => {
+    if (representedIdentityCache.has(value)) return representedIdentityCache.get(value);
+    if (!identity?.representUser) throw new Error('Restricted MCP identity context is unavailable');
+    const represented = await identity.representUser(value);
+    representedIdentityCache.set(value, represented);
+    return represented;
+  };
   const tools = mcpTools(spec, identityMode);
   const byName = new Map(tools.map((t) => [t.name, t]));
   const operations = clientOperations(spec);
