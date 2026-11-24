@@ -364,7 +364,7 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
     for (const row of grantRows.rows) {
       const payload = row.payload ?? {};
       const clientId = payload.clientId;
-      const scopes = String(payload.openid?.scope ?? '').split(/\\s+/);
+      const scopes = String(payload.openid?.scope ?? '').split(/\s+/);
       if (clientId && scopes.includes('mcp')) oauthClients.set(clientId, payload.clientName || clientId);
     }
     const { rows: modeRows } = await pool.query(
