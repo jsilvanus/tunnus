@@ -229,8 +229,28 @@ async function mapOperationInput(op, params, body, resolve) {
   return { params: mapped, body: op.bodySchema ? await mapIdentitySchema(body, op.bodySchema, resolve, 'input') : body };
 }
 
+function assertIdentityAnnotations(schema, path = '') {
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return;
+  const record = schema['x-tunnus-user-record'] === true || schema['x-tunnus-membership-record'] === true;
+  for (const [key, child] of Object.entries(schema.properties ?? {})) {
+    const childPath = path ? path + '.' + key : key;
+    if (['email', 'display_name', 'phone_number', 'title'].includes(key) && !record && child?.['x-tunnus-omit-in-restricted'] !== true) {
+      throw new Error('Unannotated identity-bearing response field: ' + childPath);
+    }
+    if (['user_id', 'actor_user_id', 'created_by'].includes(key) && child?.['x-tunnus-user-id'] !== true && !child?.['x-tunnus-user-id-when']) {
+      throw new Error('Unannotated user identifier response field: ' + childPath);
+    }
+    assertIdentityAnnotations(child, childPath);
+  }
+  if (schema.items) assertIdentityAnnotations(schema.items, path + '[]');
+  for (const key of ['oneOf', 'anyOf', 'allOf']) {
+    for (const child of schema[key] ?? []) assertIdentityAnnotations(child, path);
+  }
+}
+
 async function projectOperationOutput(op, body, represent) {
   if (!op?.responseSchema || op.operationId === 'getMe') return body;
+  assertIdentityAnnotations(op.responseSchema);
   return mapIdentitySchema(body, op.responseSchema, represent, 'output');
 }
 
