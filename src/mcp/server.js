@@ -162,7 +162,6 @@ export function mcpTools(spec, identityMode = 'open') {
     .map((op) => ({
       name: op.operationId,
       title: op.summary,
-      description: op.description ? `${op.summary}\n\n${op.description}` : op.summary,
       description: [op.summary, op.description, identityMode === 'pseudo_ref' ? 'User references: use pseudo:<alias> or ref:<handle>. Raw names, emails, and UUIDs are not accepted.' : identityMode === 'ref_only' ? 'User references: use ref:<handle> only. Pseudonyms, raw names, emails, and UUIDs are not accepted.' : ''].filter(Boolean).join('\n\n'),
       inputSchema: inputSchemaFor(op, identityMode),
       annotations: annotationsFor(op),
@@ -204,8 +203,6 @@ async function mapIdentitySchema(value, schema, convert, direction) {
     for (const key of ['email', 'display_name', 'title', 'phone_number']) delete out[key];
   }
   if (direction === 'output' && schema['x-tunnus-membership-record'] === true) {
-    if (typeof out.user_id === 'string') out.user_id = await convert(out.user_id);
-    if (typeof out.granted_by === 'string') out.granted_by = await convert(out.granted_by);
     delete out.email;
     delete out.display_name;
   }
