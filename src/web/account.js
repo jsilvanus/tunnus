@@ -17,7 +17,7 @@ import {
   verifyUserTotp,
 } from '../totp.js';
 import { sendInBackground } from './interactions.js';
-import { accountCodePage, accountLoginPage, accountPage, accountTotpSetupPage } from './pages.js';
+import { accountCodePage, accountLoginPage, accountPage, accountTotpSetupPage, mcpIdentityPage } from './pages.js';
 import {
   clearDbMcpCommitList,
   executeDbMcpCommitList,
@@ -28,6 +28,18 @@ import {
 import { getFixedTimeRemainingMs, isFixedTimeRunning } from '../client/mcpState.js';
 import { dispatchBackchannelLogout } from '../oidc/backchannel.js';
 import { errorFields, logger } from '../logger.js';
+import {
+  addMcpPseudonym,
+  createMcpIdentityRefForSubject,
+  createMcpIdentitySubject,
+  deleteMcpPseudonym,
+  ensureMcpIdentitySubjectForOwner,
+  extendMcpIdentityRef,
+  linkMcpIdentitySubject,
+  listMcpIdentityDirectory,
+  revokeMcpIdentityRef,
+  setMcpIdentityMode,
+} from '../mcp/identity.js';
 
 const FRESH_EMAIL_MS = 10 * 60 * 1000;
 const ACCOUNT_SESSION_MS = 60 * 60 * 1000;
@@ -269,7 +281,14 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
       }
     }
 
-    /** @type {Array<{ clientId: string, clientName: string, scopes: string[], resources?: string[], isMcp: boolean }>} */
+    const { rows: identitySettingRows } = await pool.query(
+      `SELECT auth_client_key, identity_mode FROM mcp_client_settings
+        WHERE owner_user_id = $1 AND auth_kind = 'oauth'`,
+      [acct.user.id],
+    );
+    const identityModes = new Map(identitySettingRows.map((r) => [r.auth_client_key, r.identity_mode]));
+
+    /** @type {Array<{ clientId: string, clientName: string, scopes: string[], resources?: string[], isMcp: boolean, identityMode?: string }>} */
     const apps = [];
     for (const [clientId, item] of appsMap) {
       let isFirstParty = false;
@@ -293,6 +312,7 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
           scopes: Array.from(item.scopes),
           resources: Array.from(item.resources || []),
           isMcp: hasMcp,
+          identityMode: identityModes.get(clientId) ?? 'open',
         });
       }
     }
