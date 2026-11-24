@@ -40,7 +40,8 @@ function sendError(res, status, code, message) {
  *   stateStore?: any,
  *   issuer?: string,
  *   accountUrl?: string,
- *   identityPool?: import('pg').Pool,\n *   resolveTokenUser?: (token: string) => Promise<
+ *   identityPool?: import('pg').Pool,
+ *   resolveTokenUser?: (token: string) => Promise<
  *     | { ok: true, user: { id: string, email?: string }, token?: { label?: string }, label?: string }
  *     | { ok: false, reason: string }
  *   >,
@@ -105,7 +106,8 @@ export function createMcpHttpApp({
           if (!found.ok) return void sendUnauthorized(res, 'invalid_token');
           res.locals.token = token;
           res.locals.user = found.user;
-          res.locals.identityScope = { ownerUserId: found.user.id, authKind: 'admin_token', authClientKey: found.token.id };\n          res.locals.actor = {
+          res.locals.identityScope = { ownerUserId: found.user.id, authKind: 'admin_token', authClientKey: found.token.id };
+          res.locals.actor = {
             userId: found.user.id,
             email: found.user.email,
             label: found.token?.label || found.label || 'token',
@@ -138,7 +140,17 @@ export function createMcpHttpApp({
 
   app.post('/mcp', authenticate, express.json({ limit: '1mb' }), async (req, res) => {
     const client = createApiClient({ url, token: res.locals.token, fetch });
-    let identity = null;\n    if (identityPool && res.locals.identityScope) {\n      const scope = res.locals.identityScope;\n      const mode = await getMcpIdentitySettings(identityPool, scope);\n      identity = {\n        mode,\n        resolveUser: (value) => resolveMcpUserReference(identityPool, scope, value, mode),\n        representUser: (value) => representMcpUser(identityPool, scope, value, mode),\n      };\n    }\n    const server = createMcpServer({
+    let identity = null;
+    if (identityPool && res.locals.identityScope) {
+      const scope = res.locals.identityScope;
+      const mode = await getMcpIdentitySettings(identityPool, scope);
+      identity = {
+        mode,
+        resolveUser: (value) => resolveMcpUserReference(identityPool, scope, value, mode),
+        representUser: (value) => representMcpUser(identityPool, scope, value, mode),
+      };
+    }
+    const server = createMcpServer({
       spec,
       callApi: (op, args) => client.call(op, args),
       statePath,
