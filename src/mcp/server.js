@@ -511,7 +511,7 @@ export function createMcpServer({
         method: tool.operation.method,
         path: tool.operation.path,
         params,
-        body: tool.operation.bodySchema ? body : undefined,
+        body: tool.operation.bodySchema ? mappedBody : undefined,
         stagedBy: actor ?? null,
       };
 
@@ -551,7 +551,7 @@ export function createMcpServer({
         params,
         body: tool.operation.bodySchema ? body : undefined,
       });
-      const structured = res.body ?? {};
+      const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, representIdentityUser);
       return {
         content: [{ type: 'text', text: JSON.stringify(structured, null, 2) }],
         structuredContent: structured,
