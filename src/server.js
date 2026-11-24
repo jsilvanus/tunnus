@@ -3,6 +3,7 @@ import { loadClients, loadConfig } from './config.js';
 import { createPool, migrate } from './db.js';
 import { ensureDefaultGroups } from './accounts.js';
 import { ensureSigningKey } from './oidc/keys.js';
+import { syncFromFile } from './clients/store.js';
 import { createMailerFromConfig } from './mail.js';
 import { startCleanupScheduler } from './jobs/scheduler.js';
 import { errorFields, logger } from './logger.js';
@@ -14,12 +15,12 @@ const pool = createPool(config.databaseUrl);
 await migrate(pool);
 await ensureDefaultGroups(pool, config.defaultGroups);
 await ensureSigningKey(pool, config.keyEncryptionSecret);
+await syncFromFile(pool, loadClients(config.clientsFile), config.keyEncryptionSecret, logger);
 
 const mailer = createMailerFromConfig(config, logger);
 const { app, holder, metrics } = await createApp({
   config,
   pool,
-  clients: loadClients(config.clientsFile),
   mailer,
 });
 holder.start();
@@ -62,7 +63,7 @@ async function shutdown(signal) {
   }
   shuttingDown = true;
   logger.info({ signal }, 'shutting down');
-  holder.stop();
+  await holder.stop();
   const cleanupDone = cleanup.stop();
 
   const closed = new Promise((resolve) => server.close(resolve));

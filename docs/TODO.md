@@ -129,7 +129,7 @@ Design: [`production.md`](production.md).
 ## Later
 
 - [ ] Admin web UI on the admin API
-- [ ] Clients managed in the database through the admin API
+- [x] Clients managed in the database through the admin API (see [`db-clients-plan.md`](db-clients-plan.md))
 - [ ] Passkeys (WebAuthn), once a deployment's domain is final
 - [ ] Self-service email change with verification of the new address
 - [ ] Secondary email address: keep primary `email` as the username/claim, but send sign-in codes (and optionally inactivity warnings) to both primary and secondary addresses

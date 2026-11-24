@@ -33,14 +33,14 @@ import { loadJwks } from './oidc/keys.js';
 /**
  * Build the Express app. Everything is mounted under the issuer's path so a
  * reverse proxy can route a prefix without stripping it.
- * @param {{ config: import('./config.js').Config, pool: import('pg').Pool, clients: Record<string, any>[], mailer: import('./mail.js').Mailer }} deps
+ * @param {{ config: import('./config.js').Config, pool: import('pg').Pool, mailer: import('./mail.js').Mailer }} deps
  * @param {{ validateResponses?: boolean }} [options]
  */
-export async function createApp({ config, pool, clients, mailer }, options = {}) {
+export async function createApp({ config, pool, mailer }, options = {}) {
   const validateResponses = options.validateResponses ?? config.adminValidateResponses;
-  const holder = await createProviderHolder({ config, pool, clients });
   const metrics = createMetrics();
   setAuditMetrics(metrics);
+  const holder = await createProviderHolder({ config, pool, metrics });
   const app = express();
   app.set('trust proxy', config.trustProxy);
   app.disable('x-powered-by');
@@ -74,7 +74,7 @@ export async function createApp({ config, pool, clients, mailer }, options = {})
   const adminRouter = createAdminRouter({
     config,
     pool,
-    clients,
+    getClients: () => holder.clients,
     reloadKeys: holder.reload,
     getProvider: () => holder.current,
     validateResponses,

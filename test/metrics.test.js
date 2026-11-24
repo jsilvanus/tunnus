@@ -42,6 +42,14 @@ const pool = {
         ],
       });
     if (sql.includes('signing_keys')) return Promise.resolve({ rows: [{ age: 120.5 }] });
+    if (sql.includes('oidc_clients'))
+      return Promise.resolve({
+        rows: [
+          { source: 'file', disabled: false, n: 2 },
+          { source: 'api', disabled: false, n: 1 },
+          { source: 'api', disabled: true, n: 1 },
+        ],
+      });
     return Promise.resolve({ rows: [] });
   },
 };
@@ -150,11 +158,24 @@ describe('audit action counters', () => {
 });
 
 describe('gauges', () => {
-  it('reads user counts and signing key age at scrape time', async () => {
+  it('reads user counts, client counts and signing key age at scrape time', async () => {
     const res = await get(appFor(createMetrics(), 't'), '/metrics', { authorization: 'Bearer t' });
     expect(res.text).toContain('tunnus_users{status="active"} 3');
     expect(res.text).toContain('tunnus_users{status="disabled"} 1');
     expect(res.text).toContain('tunnus_signing_key_age_seconds 120.5');
+    expect(res.text).toContain('tunnus_clients{source="file",disabled="false"} 2');
+    expect(res.text).toContain('tunnus_clients{source="api",disabled="false"} 1');
+    expect(res.text).toContain('tunnus_clients{source="api",disabled="true"} 1');
+  });
+
+  it('tracks client reload and invalid client counters', async () => {
+    const metrics = createMetrics();
+    metrics.incClientReload();
+    metrics.incClientReload();
+    metrics.incClientInvalid();
+    const text = await metrics.registry.metrics();
+    expect(sample(text, 'tunnus_client_reloads_total')).toBe(2);
+    expect(sample(text, 'tunnus_client_invalid_total')).toBe(1);
   });
 
   it('exposes the cleanup timestamp, 0 before the first run', async () => {

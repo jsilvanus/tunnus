@@ -11,7 +11,7 @@ export function setAuditMetrics(instance) {
 
 /**
  * Append an audit event. `details` must never contain email addresses or codes.
- * @param {import('pg').Pool} pool
+ * @param {import('pg').Pool | import('pg').PoolClient} pool
  * @param {{ actorUserId?: string | null, action: string, targetType?: string, targetId?: string, ip?: string | null, details?: Record<string, unknown> }} event
  */
 export async function audit(pool, event) {

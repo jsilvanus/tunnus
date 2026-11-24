@@ -281,6 +281,48 @@ describe('MCP server mutative action enforcement', () => {
     expect(res.isError).toBeFalsy();
   });
 
+  it('gates client mutations through the commit list / fixed-time window while allowing client reads', async () => {
+    /** @type {string[]} */
+    const readCalls = [];
+    const state = {
+      mode: /** @type {const} */ ('commit-list'),
+      fixedTimeUntil: null,
+      listLocked: false,
+      commitList: /** @type {import('../src/client/mcpState.js').StagedAction[]} */ ([]),
+    };
+    const { client } = await connect({
+      spec,
+      state,
+      callApi: async (op) => {
+        readCalls.push(op.operationId);
+        return { status: 200, body: { items: [] } };
+      },
+    });
+
+    const getRes = await client.callTool({ name: 'getClient', arguments: { clientId: 'rp' } });
+    expect(getRes.isError).toBeFalsy();
+    expect(readCalls).toEqual(['getClient']);
+
+    for (const [name, args] of /** @type {const} */ ([
+      ['putClient', { clientId: 'mcp-app', body: { redirect_uris: ['https://a.example/cb'] } }],
+      ['updateClient', { clientId: 'mcp-app', body: { first_party: true } }],
+      ['rotateClientSecret', { clientId: 'mcp-app' }],
+      ['adoptClient', { clientId: 'rp' }],
+      ['deleteClient', { clientId: 'mcp-app' }],
+    ])) {
+      const res = await client.callTool({ name, arguments: args });
+      expect(res.isError, name).toBeFalsy();
+      expect(/** @type {any} */ (res.structuredContent).staged, name).toBe(true);
+    }
+    expect(state.commitList.map((a) => a.operationId)).toEqual([
+      'putClient',
+      'updateClient',
+      'rotateClientSecret',
+      'adoptClient',
+      'deleteClient',
+    ]);
+  });
+
   it('inspects commit list via getCommitList tool', async () => {
     const state = {
       mode: /** @type {const} */ ('commit-list'),

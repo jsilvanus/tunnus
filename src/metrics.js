@@ -114,6 +114,36 @@ export function createMetrics() {
     registers: [registry],
   });
 
+  /** @type {Gauge<'source' | 'disabled'>} */
+  const clientsGauge = new Gauge({
+    name: 'tunnus_clients',
+    help: 'Registered OIDC clients by source and disabled state',
+    labelNames: ['source', 'disabled'],
+    registers: [registry],
+    collect: async () => {
+      if (!scrapePool) return;
+      const { rows } = await scrapePool.query(
+        'SELECT source, disabled, count(*)::int AS n FROM oidc_clients GROUP BY source, disabled',
+      );
+      clientsGauge.reset();
+      for (const row of rows) {
+        clientsGauge.set({ source: row.source, disabled: String(Boolean(row.disabled)) }, row.n);
+      }
+    },
+  });
+
+  const clientReloads = new Counter({
+    name: 'tunnus_client_reloads_total',
+    help: 'OIDC provider client reloads',
+    registers: [registry],
+  });
+
+  const clientInvalid = new Counter({
+    name: 'tunnus_client_invalid_total',
+    help: 'OIDC client rows rejected or skipped during reload',
+    registers: [registry],
+  });
+
   /**
    * Count an audit event. Called by `audit()` after the row is written.
    * @param {string} action
@@ -154,6 +184,14 @@ export function createMetrics() {
     cleanupLastSuccess.set(date.getTime() / 1000);
   }
 
+  function incClientReload() {
+    clientReloads.inc();
+  }
+
+  function incClientInvalid() {
+    clientInvalid.inc();
+  }
+
   /**
    * The `/metrics` route. Off (404) when `token` is empty.
    * @param {{ pool: import('pg').Pool, token: string }} options
@@ -180,7 +218,14 @@ export function createMetrics() {
     return r;
   }
 
-  return { registry, countAuditAction, setCleanupSuccess, router };
+  return {
+    registry,
+    countAuditAction,
+    setCleanupSuccess,
+    incClientReload,
+    incClientInvalid,
+    router,
+  };
 }
 
 /** @typedef {ReturnType<typeof createMetrics>} Metrics */
