@@ -22,6 +22,11 @@ function assertScope(scope) {
  */
 export async function getMcpIdentitySettings(pool, scope) {
   assertScope(scope);
+  await pool.query(
+    `DELETE FROM mcp_identity_refs
+      WHERE expires_at < now() - interval '30 days'
+         OR revoked_at < now() - interval '30 days'`,
+  );
   const { rows } = await pool.query(
     `SELECT identity_mode FROM mcp_client_settings
       WHERE owner_user_id = $1 AND auth_kind = $2 AND auth_client_key = $3`,
