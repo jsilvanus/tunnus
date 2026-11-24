@@ -113,7 +113,7 @@ export async function resolveMcpUserReference(pool, scope, identifier, mode) {
   if (!subject) throw new Error('Unknown or expired user reference');
   if (!subject.tunnus_user_id) {
     const err = new Error('This identity is not linked to a Tunnus account');
-    err.code = 'target_not_linked';
+    /** @type {any} */ (err).code = 'target_not_linked';
     throw err;
   }
   return subject.tunnus_user_id;
