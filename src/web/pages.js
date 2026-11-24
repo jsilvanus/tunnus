@@ -487,13 +487,22 @@ ${commitControls}
         const mcpBadge = app.isMcp
           ? ` <span style="display:inline-block;padding:.1rem .3rem;border-radius:.2rem;font-size:.7rem;font-weight:600;background:#e0f2fe;color:#0369a1">MCP</span>`
           : '';
+        const identityForm = app.isMcp ? (
+          '<form method="post" action="' + esc(p.basePath) + '/account/mcp/identity-mode" style="margin-top:.5rem">' +
+          '<input type="hidden" name="csrf" value="' + esc(p.csrf) + '"><input type="hidden" name="clientId" value="' + esc(app.clientId) + '">' +
+          '<label style="font-size:.8rem">MCP identity mode<select name="mode">' +
+          '<option value="open" ' + ((app.identityMode || 'open') === 'open' ? 'selected' : '') + '>Open</option>' +
+          '<option value="pseudo_ref" ' + (app.identityMode === 'pseudo_ref' ? 'selected' : '') + '>Pseudonym + refs</option>' +
+          '<option value="ref_only" ' + (app.identityMode === 'ref_only' ? 'selected' : '') + '>Refs only</option>' +
+          '</select></label><button class="alt" style="padding:.25rem .5rem;font-size:.8rem">Save</button></form>'
+        ) : '';
         const resourcesStr =
           app.resources && app.resources.length > 0
             ? `<br><small style="color:#555"><em>${esc(t(locale, 'account_apps_resources'))}:</em> ${esc(app.resources.join(', '))}</small>`
             : '';
         return `<tr>
 <td><strong>${esc(app.clientName)}</strong>${mcpBadge}${idSubtitle}</td>
-<td><small style="color:#555">${scopesStr}</small>${resourcesStr}</td>
+<td><small style="color:#555">${scopesStr}</small>${resourcesStr}${identityForm}</td>
 <td style="text-align:right">
 <form method="post" action="${esc(p.basePath)}/account/apps/revoke" style="display:inline">
 <input type="hidden" name="csrf" value="${esc(p.csrf)}">
@@ -525,6 +534,7 @@ ${rows}
 <h3 style="margin-top:0">${esc(t(locale, 'account_apps_title'))}</h3>
 ${appNoticeBanner}
 ${appsContent}
+<p><a href="${esc(p.basePath)}/account/mcp-identities">Manage MCP pseudonyms and temporary references</a></p>
 </div>`;
 
   const statusBadge =
