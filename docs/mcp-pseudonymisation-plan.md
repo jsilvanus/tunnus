@@ -12,12 +12,13 @@ The owner maintains a user-scoped identity directory containing one or more pseu
 
 | Mode | Identity visible to MCP |
 | --- | --- |
-| `normal` | Existing identity fields (email, display name, UUID, etc.); compatibility default |
-| `pseudo` | UUIDs and pseudonyms only; no real names, email addresses, phone numbers, titles, or other direct identity fields |
+| `open` | Existing identity fields (email, display name, UUID, etc.); compatibility default |
+| `pseudo_ref` (UI: **Pseudonym + refs**) | Preferred pseudonym when available; otherwise a temporary reference. Both typed pseudonyms and references are accepted as inputs. Never expose permanent Tunnus UUIDs or direct identity fields. |
+| `ref_only` (UI: **Refs only**) | Temporary references for every user identity. Pseudonyms and permanent Tunnus UUIDs are not exposed or accepted as MCP user references. |
 
 `pseudo_ref` and `ref_only` never expose permanent Tunnus UUIDs. A pseudonym is an alias, not a role or permission. Multiple aliases may refer to the same target (for example `kirkkoherra`, `Person A`, and `A`). One alias may be designated as the preferred display alias; other aliases remain valid input aliases. In `pseudo_ref`, output the preferred pseudonym when one exists, otherwise create or reuse a valid temporary reference. In `ref_only`, always output a temporary reference, even when the target has pseudonyms.
 
-Use explicit typed identifiers: `pseudo:<alias>` for a pseudonyms and `ref:<handle>` for a temporary reference. Do not accept bare names, email addresses, or unprefixed aliases in either restricted mode. In `pseudo_ref`, accept both `pseudo:<alias>` and a valid `ref:<handle>`. In `ref_only`, accept only a valid `ref:<handle>`. In `open`, preserve existing identifier semantics.
+Use explicit typed identifiers: `pseudo:<alias>` for a pseudonym and `ref:<handle>` for a temporary reference. Do not accept bare names, email addresses, or unprefixed aliases in either restricted mode. In `pseudo_ref`, accept both `pseudo:<alias>` and a valid `ref:<handle>`. In `ref_only`, accept only a valid `ref:<handle>`. In `open`, preserve existing identifier semantics.
 
 Example: the owner creates `pseudo:kirkkoherra` for a target and enables `pseudo_ref` for an MCP client. A group-members listing returns `pseudo:kirkkoherra` for that person. For a person without a preferred pseudonym, the MCP boundary creates or reuses a temporary `ref:<handle>` and returns it. The assistant can then use either typed identifier in a supported operation. The MCP boundary resolves it to the linked Tunnus user's UUID internally; the UUID and direct identity fields are not returned.
 
@@ -72,15 +73,15 @@ Persist temporary references independently of MCP transport sessions:
 - `owner_user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE`;
 - `auth_kind` and `auth_client_key`, matching the authenticated credential identity used by `mcp_client_settings`;
 - `subject_id uuid NOT NULL REFERENCES mcp_identity_subjects(id) ON DELETE CASCADE`;
-- a cryptographically random, unguessable opaque handle, unique within the system (exposed only with the `ref:` prefix);
+- a cryptographically random 256-bit opaque handle, unique within the system (exposed as `ref:<handle>`);
 - `created_at`, `expires_at`, and `updated_at` timestamps;
 - optional `revoked_at` or equivalent revocation state.
 
-A reference is valid only when its owner and credential scope match the current authenticated MCP request, it has not been revoked, and `expires_at` is in the future. Never resolve a reference by handle alone without checking both scope dimensions. References are not authentication credentials and grant no authority beyond the current MCP credential's existing permissions. They only identify a directory subject. Expired, revoked, unknown, and out-of-scope references should fail with the same generic non-identifying error. Use cryptographically secure randomness; do not derive handles from user UUIDs, aliases, timestamps, or sequential IDs. Store and expose only what is needed to support listing and copying references safely.
+A reference is valid only when its owner and credential scope match the current authenticated MCP request, it has not been revoked, and `expires_at` is in the future. Never resolve a reference by handle alone without checking both scope dimensions. References are not authentication credentials and grant no authority beyond the current MCP credential's existing permissions. They only identify a directory subject. Expired, revoked, unknown, and out-of-scope references should fail with the same generic non-identifying error. Use cryptographically secure randomness; do not derive handles from user UUIDs, aliases, timestamps, or sequential IDs. The handle is an identifier, not a bearer credential: possession alone grants no access. Store it so the owner can see and copy the complete active reference in the authenticated pseudonyms and references page; every MCP resolution still requires matching owner + credential scope.
 
-Default reference lifetime: 24 hours. The owner can extend an active reference from the account UI; the new expiry must be calculated server-side and shown as an absolute timestamp (UTC internally, localized in the UI). The UI should make clear that extending expiry does not change the target or widen its scope. Expired references are invalid immediately; cleanup may delete expired rows asynchronously. Revocation and expiry must take effect on the next MCP request.
+Default reference lifetime: 24 hours. The owner can click to extend an active reference from the account UI (default extension: another 24 hours from the time of extension); the new expiry must be calculated server-side and shown as an absolute timestamp (UTC internally, localized in the UI). The UI should make clear that extending expiry does not change the target or widen its scope. Expired references are invalid immediately; cleanup may delete expired rows asynchronously. Revocation and expiry must take effect on the next MCP request.
 
-Create references lazily when a restricted-mode MCP query needs to represent a user for whom no applicable reference already exists. Reuse an active reference for the same `(owner, credential, subject)` rather than creating a new one on every list call. The owner can also create a reference manually from the pseudonyms page by selecting a Tunnus user or an existing pseudonym/subject. Manual creation is useful when the owner wants to prepare a reference before asking the assistant to perform an operation. A subject may have multiple active references for the same credential if the owner explicitly creates them; define whether manual creation reuses or deliberately rotates an existing one in the UI.
+Create references lazily when a restricted-mode MCP query needs to represent a user for whom no applicable reference already exists. Reuse an active reference for the same `(owner, credential, subject)` rather than creating a new one on every list call. The owner can also create a reference manually from the pseudonyms page by selecting a Tunnus user or an existing pseudonym/subject. Manual creation is useful when the owner wants to prepare a reference before asking the assistant to perform an operation. Manual creation deliberately creates a new reference, even if another active reference exists for the same subject and credential. Automatic creation during MCP list/query operations reuses an active reference for that subject and credential.
 
 ### `mcp_client_settings`
 
@@ -106,7 +107,7 @@ For every operation that accepts or searches for a user reference (including gro
 2. In `pseudo_ref` mode, accept `pseudo:<alias>` and `ref:<handle>`. In `ref_only`, accept only `ref:<handle>`. Resolve aliases only within the authenticated owner's directory. Resolve references only within the authenticated owner + credential scope and only before their expiry. Reject unknown, expired, revoked, or out-of-scope identifiers with a generic non-identifying error; never fall back to UUID, email, display name, or raw-name lookup.
 3. If the directory subject is linked to a Tunnus user, resolve it to that user's canonical UUID before invoking the admin API. If it is not linked, reject operations that require a Tunnus account with a clear `target_not_linked` error that contains no personal identity data.
 4. In `open` mode, preserve existing API input semantics.
-5. Validate the resolved Tunnus user through the admin API's normal authorization and eligibility path. A pseudonym must never bypass authorization.
+5. Validate the resolved Tunnus user through the admin API's normal authorization and eligibility path. A pseudonym or reference must never bypass authorization.
 
 ### Outputs: canonical UUID to selected representation
 
@@ -124,14 +125,17 @@ In `pseudo_ref` and `ref_only`, every user-bearing response and every user check
 
 Do not perform an indiscriminate recursive string replacement: group names, descriptions, audit text, and arbitrary values may coincidentally equal a pseudonym. Prefer explicit schema annotations and operation-aware transformations. Unknown user-bearing response shapes should fail closed in pseudonym mode (or be explicitly redacted), not pass through unreviewed.
 
-In `pseudo_ref` and `ref_only`, all user queries/checks must obey the same projection; do not leave a separate check endpoint returning names or emails. Remove or constrain search inputs that expose direct identifiers (for example email/name search) unless explicitly required for the `get me` exception. Tool schemas/descriptions must explain that user references are UUIDs or `pseudo:<alias>` in this mode. The `get me` exception must be identified by the authenticated subject, not by a caller-supplied user reference.
+In `pseudo_ref` and `ref_only`, all user queries/checks must obey the same projection; do not leave a separate check endpoint returning names or emails. Remove or constrain search inputs that expose direct identifiers (for example email/name search) unless explicitly required for the `get me` exception. Tool schemas/descriptions must explain the permitted typed user references for the selected mode: `pseudo:<alias>` and/or `ref:<handle>`. The `get me` exception must be identified by the authenticated subject, not by a caller-supplied user reference.
 
 ## 5. Account UI and owner APIs
 
-Add an account subpage, linked from the existing account page, for **MCP pseudonyms**:
+Add an account subpage, linked from the existing account page, for **MCP pseudonyms and references**:
 - list the owner's identity subjects, including external/unlinked targets, and their aliases;
+- list temporary references grouped by authenticated MCP client/credential, showing the complete copyable `ref:<handle>` and its absolute expiry time;
+- let the owner extend an active reference (another 24 hours from the action) or revoke it;
 - add a subject either by selecting an existing Tunnus user or creating an external/unlinked target;
 - add multiple aliases to one subject, choose exactly one preferred display alias, and rename/delete individual aliases;
+- create a temporary reference by selecting an existing Tunnus user or an existing pseudonym/subject; manual creation creates a new reference, while automatic MCP list/query creation reuses an active reference;
 - link an external subject to a Tunnus user later, with duplicate-link prevention;
 - show real identity fields only in this authenticated human-facing page when a linked Tunnus user exists;
 - validate alias uniqueness and display clear errors;
@@ -153,13 +157,13 @@ Extend the verified auth context without trusting request-supplied identifiers:
 - For admin tokens, preserve the validated token row ID from `resolveTokenUser`; do not key by token text or label.
 - Pass a normalized identity context into `createMcpServer`: owner UUID, auth kind, credential key, and selected identity mode. The same context scopes every temporary-reference lookup, creation, extension, and revocation.
 - Resolve settings on each stateless request (or use a cache with explicit invalidation) so a changed setting takes effect without restarting the MCP service.
-- If client identity cannot be established, do not apply another client's setting. Use the documented safe behaviour; for pseudonym mode, fail closed rather than accidentally returning normal identity data.
+- If client identity cannot be established, do not apply another client's setting. Use the documented safe behaviour; for either restricted mode, fail closed rather than accidentally returning open identity data.
 
 The stdio path needs the same identity handling. Its configured token is not currently resolved to an owner/client context locally; add a narrowly scoped authenticated identity lookup (or an authenticated admin endpoint) rather than parsing the token or trusting a CLI config label. Document the limitation if this cannot be supported in the first implementation slice.
 
 ## 7. Staged actions and audit
 
-The current commit-list mechanism persists original operation parameters and actor metadata. Ensure pseudonym mode does not leak canonical UUIDs, names, or emails through:
+The current commit-list mechanism persists original operation parameters and actor metadata. Ensure restricted modes do not leak canonical UUIDs, names, or emails through:
 - MCP responses from `getCommitList`;
 - the immediate response when an action is staged;
 - the commit list shown on the account page;
@@ -193,7 +197,7 @@ The feature is not complete until tests prove all of the following:
 - Owner A cannot read, create, update, or delete Owner B's aliases/settings, even by supplying Owner B's UUID.
 - Two owners can use the same alias for different people without collision or cross-account disclosure.
 - One owner can configure separate modes for two MCP credentials; changing one does not affect the other.
-- Normal mode remains byte-for-byte compatible for existing MCP results where practical.
+- Open mode remains byte-for-byte compatible for existing MCP results where practical.
 - In `pseudo_ref` and `ref_only`, every user query/check returns only the permitted pseudonym/reference representation; it never returns permanent Tunnus UUIDs or direct identity fields, except `get me`, which always returns the authenticated caller's full own profile.
 - `pseudo_ref` accepts `pseudo:<alias>` and valid `ref:<handle>` values; `ref_only` accepts only valid `ref:<handle>` values. Unprefixed names/emails and permanent Tunnus UUIDs are not accepted as user references in restricted modes.
 - Multiple aliases resolve to one subject, and only the explicitly preferred alias is used in `pseudo_ref` output. If none is preferred, a temporary reference is returned. `ref_only` never returns aliases.
@@ -212,8 +216,8 @@ The feature is not complete until tests prove all of the following:
 - **Preferred alias:** one explicitly preferred output alias per target; other aliases are input aliases. In `pseudo_ref`, no preferred alias means a temporary reference; `ref_only` always uses references.
 - **Role aliases:** aliases such as `kirkkoherra` are convenient but may disclose a role. The UI should warn that pseudonyms are labels, not guaranteed anonymous identities.
 - **Stdio identity:** determine whether to add an authenticated context endpoint or require separately provisioned tokens for separate local clients.
-- **Temporary reference display/storage:** decide whether the account UI can retrieve and display the complete active handle (using protected storage) or should show a short identifier and offer copy/rotation only at creation. Do not weaken owner/client scoping to make references easier to display.
-- **Reference extension policy:** define the maximum extension horizon and whether extending an expired reference is forbidden (recommended: create a new reference instead).
-- **Manual reference creation semantics:** decide whether creating a reference for a subject with an active reference reuses it by default or explicitly creates an additional handle.
+- **Temporary reference display/storage:** the complete active handle is visible and copyable only in the authenticated owner-facing pseudonyms page. The handle itself is not an authorization credential; every use is still checked against owner, credential, and expiry.
+- **Reference extension policy:** extending an active reference adds another 24 hours from the extension action. An expired reference cannot be revived; create a new reference instead. A maximum lifetime/horizon can be introduced if operational experience requires it.
+- **Manual reference creation semantics:** manual creation always creates a new handle; automatic list/query creation reuses an active handle for the same subject and credential.
 - **Tool schema filtering:** decide whether to dynamically tailor `listTools` schemas/descriptions by identity mode or keep stable schemas and reject disallowed fields at call time. The latter is simpler; the former gives better model guidance. Both require server-side enforcement.
 - **`get me` operation mapping:** identify the exact OpenAPI operation that represents the authenticated caller's own profile and guarantee that it cannot be redirected to another user by a supplied UUID or pseudonym.
