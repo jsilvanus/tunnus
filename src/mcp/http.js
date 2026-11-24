@@ -42,7 +42,7 @@ function sendError(res, status, code, message) {
  *   accountUrl?: string,
  *   identityPool?: import('pg').Pool,
  *   resolveTokenUser?: (token: string) => Promise<
- *     | { ok: true, user: { id: string, email?: string }, token?: { label?: string }, label?: string }
+ *     | { ok: true, user: { id: string, email?: string }, token?: { id: string, label?: string }, label?: string }
  *     | { ok: false, reason: string }
  *   >,
  * }} options
