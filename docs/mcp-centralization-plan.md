@@ -5,6 +5,7 @@
 Currently, Tunnus operates as the central OpenID Connect (OIDC) identity provider and exposes its own MCP server for administrative self-service. Several downstream applications connected to Tunnus (such as `ptv-mcp`) also expose MCP endpoints to AI clients (e.g., Claude, Cursor, ChatGPT).
 
 However:
+
 1. Downstream applications historically issued their own independent OAuth grants/tokens for MCP, causing fragmentation: Tunnus has no visibility into external AI connections made to downstream applications.
 2. In Tunnus (`v0.9.7`), `/account` displays "Authorized applications" querying local `oidc_payloads`, but revoking an application only deletes the local grant and does not notify the downstream application.
 3. Connected applications maintain active web sessions and MCP tokens until local expiration, regardless of revocation in Tunnus.
@@ -48,6 +49,7 @@ This plan details the centralization of MCP OAuth on Tunnus as the single Author
 ### 1. Multi-Resource Indicator Support (`src/oidc/provider.js`)
 
 Currently, `src/oidc/provider.js` restricts resource indicators to `config.mcp.resourceUrl`:
+
 ```javascript
 // Current limitation in src/oidc/provider.js:
 getResourceServerInfo: (_ctx, resourceIndicator) => {
@@ -57,6 +59,7 @@ getResourceServerInfo: (_ctx, resourceIndicator) => {
 ```
 
 **Plan**:
+
 - Extend `getResourceServerInfo` to accept downstream resource indicators.
 - Source allowed resource URIs from client metadata (`allowed_resources` in `clients.json`) or validate against registered client URLs.
 - For valid downstream resource indicators:
@@ -69,6 +72,7 @@ getResourceServerInfo: (_ctx, resourceIndicator) => {
 
 Currently, `/account` lists apps by `clientId` and `scopes`.
 **Plan**:
+
 - Inspect `payload.resources` or resource parameters stored with the grant in `oidc_payloads`.
 - Resolve human-readable labels for target resources (e.g. "PTV Palvelutietovaranto MCP", "Tunnus Admin MCP").
 - Group multiple grants under the same client/app or distinguish specific resource permissions.
@@ -77,6 +81,7 @@ Currently, `/account` lists apps by `clientId` and `scopes`.
 ### 3. Back-Channel Dispatcher (`src/oidc/backchannel.js`)
 
 Implement a reusable dispatcher for back-channel logout and revocation:
+
 - **Contract**: OpenID Connect Back-Channel Logout 1.0 + RFC 8417 (Security Event Token).
 - **Token Claims**:
   - `iss`: Tunnus issuer URL.
@@ -104,6 +109,7 @@ Implement a reusable dispatcher for back-channel logout and revocation:
 ### 4. Wiring Revocation Events
 
 Trigger back-channel dispatch in:
+
 1. `POST /account/apps/revoke`: When user revokes an app, delete grant from `oidc_payloads` AND dispatch backchannel revoke to that client.
 2. Admin user disable/delete (`src/admin/handlers/users.js`): Dispatch to all clients where user has active grants or sessions.
 3. Group removal (`src/admin/handlers/memberships.js`): Dispatch to clients associated with the removed group if applicable.
