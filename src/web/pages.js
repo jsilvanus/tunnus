@@ -626,6 +626,17 @@ export function mcpIdentityPage(ctx, p) {
   const subjectOptions = p.subjects.map((s) =>
     `<option value="${esc(s.subject_id)}">${esc(s.display_name || s.label || s.email || s.subject_id)}</option>`,
   ).join('');
+  const clientSettings = p.clients.map((c) =>
+    '<form method="post" action="' + esc(p.basePath) + '/account/mcp/identity-mode" style="margin:.5rem 0;padding:.5rem;border:1px solid #ddd">' +
+    '<input type="hidden" name="csrf" value="' + esc(p.csrf) + '">' +
+    '<input type="hidden" name="authKind" value="' + esc(c.auth_kind) + '">' +
+    '<input type="hidden" name="authClientKey" value="' + esc(c.auth_client_key) + '">' +
+    '<strong>' + esc(c.label) + '</strong><br><select name="mode">' +
+    '<option value="open" ' + ((c.identity_mode || 'open') === 'open' ? 'selected' : '') + '>Open</option>' +
+    '<option value="pseudo_ref" ' + (c.identity_mode === 'pseudo_ref' ? 'selected' : '') + '>Pseudonym + refs</option>' +
+    '<option value="ref_only" ' + (c.identity_mode === 'ref_only' ? 'selected' : '') + '>Refs only</option>' +
+    '</select> <button class="alt">Save mode</button></form>'
+  ).join('');
   const clientOptions = p.clients.map((c) =>
     `<option value="${esc(c.auth_kind)}|${esc(c.auth_client_key)}">${esc(c.label)}</option>`,
   ).join('');
@@ -671,6 +682,7 @@ ${notice}${error}
 <input type="hidden" name="csrf" value="${esc(p.csrf)}">
 <label>Existing Tunnus user (optional)<select name="userId"><option value="">External / not linked</option>${userOptions}</select></label>
 <label>Label for external identity<input name="label" maxlength="200"></label><button>Create subject</button></form></section>
+<section><h3>MCP client identity modes</h3>${clientSettings || '<p>No active MCP credentials found.</p>'}</section>
 <section><h3>Create temporary reference</h3>
 <form method="post" action="${esc(p.basePath)}/account/mcp-identities/refs">
 <input type="hidden" name="csrf" value="${esc(p.csrf)}">
