@@ -404,8 +404,10 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
     if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) return void res.status(403).send('Invalid CSRF token');
     if (!acct.user.groups.includes('admin')) return void res.status(403).send('Forbidden: admin only');
     const authKind = String(req.body.authKind ?? 'oauth');
+    if (authKind !== 'oauth' && authKind !== 'admin_token') return void identityRedirect(res, 'Invalid MCP credential type.', true);
     const authClientKey = String(req.body.authClientKey ?? req.body.clientId ?? '').trim();
     const mode = String(req.body.mode ?? '');
+    if (mode !== 'open' && mode !== 'pseudo_ref' && mode !== 'ref_only') return void identityRedirect(res, 'Invalid MCP identity mode.', true);
     let credentialExists = false;
     if (authKind === 'oauth' && authClientKey) {
       const grant = await pool.query(
@@ -497,7 +499,7 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
     if (!acct.user.groups.includes('admin')) return void res.status(403).send('Forbidden: admin only');
     try {
       const [authKind, authClientKey] = String(req.body.credential ?? '').split('|');
-      if (!['oauth', 'admin_token'].includes(authKind) || !authClientKey) throw new Error('Invalid credential');
+      if ((authKind !== 'oauth' && authKind !== 'admin_token') || !authClientKey) throw new Error('Invalid credential');
       if (authKind === 'oauth') {
         const grant = await pool.query(
           `SELECT 1 FROM oidc_payloads
