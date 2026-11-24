@@ -283,6 +283,16 @@ export function createMcpServer({
   mkdir,
 }) {
   const identityMode = identity?.mode ?? 'open';
+  const resolveIdentityUser =
+    identity?.resolveUser ??
+    (async () => {
+      throw new Error('Restricted MCP identity context is unavailable');
+    });
+  const representIdentityUser =
+    identity?.representUser ??
+    (async () => {
+      throw new Error('Restricted MCP identity context is unavailable');
+    });
   const tools = mcpTools(spec, identityMode);
   const byName = new Map(tools.map((t) => [t.name, t]));
   const operations = clientOperations(spec);
@@ -363,13 +373,13 @@ export function createMcpServer({
                   params: await mapIdentitySchema(
                     item.params ?? {},
                     paramSchema,
-                    identity.representUser,
+                    representIdentityUser,
                     'output',
                   ),
                   body: await mapIdentitySchema(
                     item.body,
                     op.bodySchema,
-                    identity.representUser,
+                    representIdentityUser,
                     'output',
                   ),
                   stagedBy: item.stagedBy ? { label: item.stagedBy.label ?? 'MCP client' } : null,
@@ -432,7 +442,7 @@ export function createMcpServer({
           content: [
             { type: 'text', text: `Executed ${res.executed.length} action(s) from commit list.` },
           ],
-          structuredContent: { executed: identityMode === 'open' ? res.executed : await Promise.all(res.executed.map(async (item) => ({ ...item, body: await projectOperationOutput(opsById.get(item.operationId), item.body, identity.representUser) }))) },
+          structuredContent: { executed: identityMode === 'open' ? res.executed : await Promise.all(res.executed.map(async (item) => ({ ...item, body: await projectOperationOutput(opsById.get(item.operationId), item.body, representIdentityUser) }))) },
         };
       }
 
@@ -447,7 +457,7 @@ export function createMcpServer({
         }
         try {
           const res = await callApi(op, { params: item.params, body: item.body });
-          const safeBody = identityMode === 'open' ? res.body : await projectOperationOutput(op, res.body, identity.representUser);
+          const safeBody = identityMode === 'open' ? res.body : await projectOperationOutput(op, res.body, representIdentityUser);
           executed.push({
             id: item.id,
             operationId: item.operationId,
@@ -484,7 +494,7 @@ export function createMcpServer({
     let mappedBody = body;
     if (identityMode !== 'open') {
       try {
-        const mapped = await mapOperationInput(tool.operation, rawParams, body, identity.resolveUser);
+        const mapped = await mapOperationInput(tool.operation, rawParams, body, resolveIdentityUser);
         params = mapped.params;
         mappedBody = mapped.body;
       } catch (err) {
@@ -506,7 +516,7 @@ export function createMcpServer({
             params,
             body: tool.operation.bodySchema ? mappedBody : undefined,
           });
-          const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, identity.representUser);
+          const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, representIdentityUser);
           return {
             content: [{ type: 'text', text: JSON.stringify(structured, null, 2) }],
             structuredContent: structured,
@@ -577,7 +587,7 @@ export function createMcpServer({
         params,
         body: tool.operation.bodySchema ? mappedBody : undefined,
       });
-      const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, identity.representUser);
+      const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, representIdentityUser);
       return {
         content: [{ type: 'text', text: JSON.stringify(structured, null, 2) }],
         structuredContent: structured,
@@ -887,13 +897,13 @@ export function createMcpServer({
                   params: await mapIdentitySchema(
                     item.params ?? {},
                     paramSchema,
-                    identity.representUser,
+                    representIdentityUser,
                     'output',
                   ),
                   body: await mapIdentitySchema(
                     item.body,
                     op.bodySchema,
-                    identity.representUser,
+                    representIdentityUser,
                     'output',
                   ),
                   stagedBy: item.stagedBy ? { label: item.stagedBy.label ?? 'MCP client' } : null,
@@ -956,7 +966,7 @@ export function createMcpServer({
           content: [
             { type: 'text', text: `Executed ${res.executed.length} action(s) from commit list.` },
           ],
-          structuredContent: { executed: identityMode === 'open' ? res.executed : await Promise.all(res.executed.map(async (item) => ({ ...item, body: await projectOperationOutput(opsById.get(item.operationId), item.body, identity.representUser) }))) },
+          structuredContent: { executed: identityMode === 'open' ? res.executed : await Promise.all(res.executed.map(async (item) => ({ ...item, body: await projectOperationOutput(opsById.get(item.operationId), item.body, representIdentityUser) }))) },
         };
       }
 
@@ -971,7 +981,7 @@ export function createMcpServer({
         }
         try {
           const res = await callApi(op, { params: item.params, body: item.body });
-          const safeBody = identityMode === 'open' ? res.body : await projectOperationOutput(op, res.body, identity.representUser);
+          const safeBody = identityMode === 'open' ? res.body : await projectOperationOutput(op, res.body, representIdentityUser);
           executed.push({
             id: item.id,
             operationId: item.operationId,
@@ -1008,7 +1018,7 @@ export function createMcpServer({
     let mappedBody = body;
     if (identityMode !== 'open') {
       try {
-        const mapped = await mapOperationInput(tool.operation, rawParams, body, identity.resolveUser);
+        const mapped = await mapOperationInput(tool.operation, rawParams, body, resolveIdentityUser);
         params = mapped.params;
         mappedBody = mapped.body;
       } catch (err) {
@@ -1030,7 +1040,7 @@ export function createMcpServer({
             params,
             body: tool.operation.bodySchema ? mappedBody : undefined,
           });
-          const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, identity.representUser);
+          const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, representIdentityUser);
           return {
             content: [{ type: 'text', text: JSON.stringify(structured, null, 2) }],
             structuredContent: structured,
@@ -1101,7 +1111,7 @@ export function createMcpServer({
         params,
         body: tool.operation.bodySchema ? mappedBody : undefined,
       });
-      const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, identity.representUser);
+      const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, representIdentityUser);
       return {
         content: [{ type: 'text', text: JSON.stringify(structured, null, 2) }],
         structuredContent: structured,
@@ -1431,13 +1441,13 @@ export function createMcpServer({
                   params: await mapIdentitySchema(
                     item.params ?? {},
                     paramSchema,
-                    identity.representUser,
+                    representIdentityUser,
                     'output',
                   ),
                   body: await mapIdentitySchema(
                     item.body,
                     op.bodySchema,
-                    identity.representUser,
+                    representIdentityUser,
                     'output',
                   ),
                   stagedBy: item.stagedBy ? { label: item.stagedBy.label ?? 'MCP client' } : null,
@@ -1500,7 +1510,7 @@ export function createMcpServer({
           content: [
             { type: 'text', text: `Executed ${res.executed.length} action(s) from commit list.` },
           ],
-          structuredContent: { executed: identityMode === 'open' ? res.executed : await Promise.all(res.executed.map(async (item) => ({ ...item, body: await projectOperationOutput(opsById.get(item.operationId), item.body, identity.representUser) }))) },
+          structuredContent: { executed: identityMode === 'open' ? res.executed : await Promise.all(res.executed.map(async (item) => ({ ...item, body: await projectOperationOutput(opsById.get(item.operationId), item.body, representIdentityUser) }))) },
         };
       }
 
@@ -1515,7 +1525,7 @@ export function createMcpServer({
         }
         try {
           const res = await callApi(op, { params: item.params, body: item.body });
-          const safeBody = identityMode === 'open' ? res.body : await projectOperationOutput(op, res.body, identity.representUser);
+          const safeBody = identityMode === 'open' ? res.body : await projectOperationOutput(op, res.body, representIdentityUser);
           executed.push({
             id: item.id,
             operationId: item.operationId,
@@ -1552,7 +1562,7 @@ export function createMcpServer({
     let mappedBody = body;
     if (identityMode !== 'open') {
       try {
-        const mapped = await mapOperationInput(tool.operation, rawParams, body, identity.resolveUser);
+        const mapped = await mapOperationInput(tool.operation, rawParams, body, resolveIdentityUser);
         params = mapped.params;
         mappedBody = mapped.body;
       } catch (err) {
@@ -1574,7 +1584,7 @@ export function createMcpServer({
             params,
             body: tool.operation.bodySchema ? mappedBody : undefined,
           });
-          const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, identity.representUser);
+          const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, representIdentityUser);
           return {
             content: [{ type: 'text', text: JSON.stringify(structured, null, 2) }],
             structuredContent: structured,
@@ -1645,7 +1655,7 @@ export function createMcpServer({
         params,
         body: tool.operation.bodySchema ? mappedBody : undefined,
       });
-      const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, identity.representUser);
+      const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, representIdentityUser);
       return {
         content: [{ type: 'text', text: JSON.stringify(structured, null, 2) }],
         structuredContent: structured,
