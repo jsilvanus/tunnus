@@ -214,6 +214,10 @@ async function mapIdentitySchema(value, schema, convert, direction) {
   }
   for (const [key, childSchema] of Object.entries(schema.properties ?? {})) {
     if (!Object.hasOwn(out, key)) continue;
+    if (direction === 'output' && childSchema?.['x-tunnus-omit-in-restricted'] === true) {
+      delete out[key];
+      continue;
+    }
     const condition = childSchema?.['x-tunnus-user-id-when'];
     const effectiveSchema = condition
       ? {
