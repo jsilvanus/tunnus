@@ -6,6 +6,7 @@ import { listOperations } from '../admin/spec.js';
  *   required: boolean,
  *   schema: any,
  *   description?: string,
+ *   sensitiveUserSearch?: boolean,
  * }} ParamDef
  */
 
@@ -27,6 +28,8 @@ import { listOperations } from '../admin/spec.js';
  *   bodyRequired: boolean,
  *   responseSchema: any | null,
  *   paged: boolean,
+ *   userRecord?: boolean,
+ *   membershipRecord?: boolean,
  * }} ClientOperation
  */
 
@@ -109,6 +112,7 @@ export function clientOperations(spec) {
         required: p.in === 'path' ? true : Boolean(p.required),
         schema: inlineRefs(spec, p.schema ?? { type: 'string' }),
         description: p.description,
+        sensitiveUserSearch: p['x-tunnus-sensitive-user-search'] === true,
       };
       if (p.in === 'path') pathParams.push(def);
       else queryParams.push(def);
@@ -138,6 +142,8 @@ export function clientOperations(spec) {
       bodyRequired: op.requestBodyRequired,
       responseSchema: responseSchema ? inlineRefs(spec, responseSchema) : null,
       paged: queryParams.some((q) => q.name === 'cursor'),
+      userRecord: responseSchema?.['x-tunnus-user-record'] === true,
+      membershipRecord: responseSchema?.['x-tunnus-membership-record'] === true,
     });
   }
   return out;
