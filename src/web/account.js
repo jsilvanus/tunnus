@@ -367,9 +367,20 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
       const scopes = String(payload.openid?.scope ?? '').split(/\\s+/);
       if (clientId && scopes.includes('mcp')) oauthClients.set(clientId, payload.clientName || clientId);
     }
+    const { rows: modeRows } = await pool.query(
+      'SELECT auth_kind, auth_client_key, identity_mode FROM mcp_client_settings WHERE owner_user_id = $1',
+      [acct.user.id],
+    );
+    const modes = new Map(modeRows.map((r) => [r.auth_kind + '|' + r.auth_client_key, r.identity_mode]));
     const clients = [
-      ...Array.from(oauthClients, ([auth_client_key, label]) => ({ auth_kind: 'oauth', auth_client_key, label: `OAuth: ${label}` })),
-      ...tokenRows.rows.map((r) => ({ auth_kind: 'admin_token', auth_client_key: r.id, label: `Admin token: ${r.label}` })),
+      ...Array.from(oauthClients, ([auth_client_key, label]) => ({
+        auth_kind: 'oauth', auth_client_key, label: 'OAuth: ' + label,
+        identity_mode: modes.get('oauth|' + auth_client_key) ?? 'open',
+      })),
+      ...tokenRows.rows.map((r) => ({
+        auth_kind: 'admin_token', auth_client_key: r.id, label: 'Admin token: ' + r.label,
+        identity_mode: modes.get('admin_token|' + r.id) ?? 'open',
+      })),
     ];
     res.send(mcpIdentityPage(ctxOf(req), {
       basePath: config.basePath,
@@ -392,19 +403,30 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
     if (!acct) return void res.redirect(302, `${config.basePath}/account`);
     if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) return void res.status(403).send('Invalid CSRF token');
     if (!acct.user.groups.includes('admin')) return void res.status(403).send('Forbidden: admin only');
-    const clientId = String(req.body.clientId ?? '').trim();
+    const authKind = String(req.body.authKind ?? 'oauth');
+    const authClientKey = String(req.body.authClientKey ?? req.body.clientId ?? '').trim();
     const mode = String(req.body.mode ?? '');
-    const grant = await pool.query(
-      `SELECT 1 FROM oidc_payloads
-        WHERE type = 'Grant' AND payload->>'accountId' = $1 AND payload->>'clientId' = $2
-          AND (expires_at IS NULL OR expires_at > now())
-          AND ('mcp' = ANY(string_to_array(payload->'openid'->>'scope', ' ')))
-        LIMIT 1`,
-      [acct.user.id, clientId],
-    );
-    if (!clientId || !grant.rows[0]) return void identityRedirect(res, 'MCP client grant not found.', true);
+    let credentialExists = false;
+    if (authKind === 'oauth' && authClientKey) {
+      const grant = await pool.query(
+        `SELECT 1 FROM oidc_payloads
+          WHERE type = 'Grant' AND payload->>'accountId' = $1 AND payload->>'clientId' = $2
+            AND (expires_at IS NULL OR expires_at > now())
+            AND ('mcp' = ANY(string_to_array(payload->'openid'->>'scope', ' ')))
+          LIMIT 1`,
+        [acct.user.id, authClientKey],
+      );
+      credentialExists = Boolean(grant.rows[0]);
+    } else if (authKind === 'admin_token' && authClientKey) {
+      const token = await pool.query(
+        'SELECT 1 FROM admin_tokens WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL AND expires_at > now()',
+        [authClientKey, acct.user.id],
+      );
+      credentialExists = Boolean(token.rows[0]);
+    }
+    if (!credentialExists) return void identityRedirect(res, 'MCP credential not found.', true);
     try {
-      await setMcpIdentityMode(pool, { ownerUserId: acct.user.id, authKind: 'oauth', authClientKey: clientId }, mode);
+      await setMcpIdentityMode(pool, { ownerUserId: acct.user.id, authKind, authClientKey }, mode);
       identityRedirect(res, 'MCP identity mode saved.');
     } catch {
       identityRedirect(res, 'Invalid MCP identity mode.', true);
