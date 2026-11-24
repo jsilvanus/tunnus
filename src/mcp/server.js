@@ -461,7 +461,7 @@ export function createMcpServer({
           await persistState(state);
           if (err instanceof ApiError) {
             return errorResult(
-              `Failed executing ${item.command} (${item.id}):\n${describeApiError(err).join('\n')}`,
+              identityMode === 'open' ? `Failed executing ${item.command} (${item.id}):\n${describeApiError(err).join('\n')}` : 'A staged operation failed. Review the commit list in the account page.',
             );
           }
           throw err;
@@ -512,7 +512,7 @@ export function createMcpServer({
             structuredContent: structured,
           };
         } catch (err) {
-          if (err instanceof ApiError) return errorResult(describeApiError(err).join('\n'));
+          if (err instanceof ApiError) return errorResult(identityMode === 'open' ? describeApiError(err).join('\n') : 'The operation failed. Check the supplied reference and permissions, then try again.');
           throw err;
         }
       }
@@ -583,7 +583,7 @@ export function createMcpServer({
         structuredContent: structured,
       };
     } catch (err) {
-      if (err instanceof ApiError) return errorResult(describeApiError(err).join('\n'));
+      if (err instanceof ApiError) return errorResult(identityMode === 'open' ? describeApiError(err).join('\n') : 'The operation failed. Check the supplied reference and permissions, then try again.');
       throw err;
     }
   });
@@ -1036,7 +1036,7 @@ export function createMcpServer({
             structuredContent: structured,
           };
         } catch (err) {
-          if (err instanceof ApiError) return errorResult(describeApiError(err).join('\n'));
+          if (err instanceof ApiError) return errorResult(identityMode === 'open' ? describeApiError(err).join('\n') : 'The operation failed. Check the supplied reference and permissions, then try again.');
           throw err;
         }
       }
@@ -1107,7 +1107,7 @@ export function createMcpServer({
         structuredContent: structured,
       };
     } catch (err) {
-      if (err instanceof ApiError) return errorResult(describeApiError(err).join('\n'));
+      if (err instanceof ApiError) return errorResult(identityMode === 'open' ? describeApiError(err).join('\n') : 'The operation failed. Check the supplied reference and permissions, then try again.');
       throw err;
     }
   });
@@ -1580,7 +1580,7 @@ export function createMcpServer({
             structuredContent: structured,
           };
         } catch (err) {
-          if (err instanceof ApiError) return errorResult(describeApiError(err).join('\n'));
+          if (err instanceof ApiError) return errorResult(identityMode === 'open' ? describeApiError(err).join('\n') : 'The operation failed. Check the supplied reference and permissions, then try again.');
           throw err;
         }
       }
@@ -1651,7 +1651,7 @@ export function createMcpServer({
         structuredContent: structured,
       };
     } catch (err) {
-      if (err instanceof ApiError) return errorResult(describeApiError(err).join('\n'));
+      if (err instanceof ApiError) return errorResult(identityMode === 'open' ? describeApiError(err).join('\n') : 'The operation failed. Check the supplied reference and permissions, then try again.');
       throw err;
     }
   });
