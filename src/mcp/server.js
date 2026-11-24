@@ -213,7 +213,17 @@ async function mapIdentitySchema(value, schema, convert, direction) {
     delete out.display_name;
   }
   for (const [key, childSchema] of Object.entries(schema.properties ?? {})) {
-    if (Object.hasOwn(out, key)) out[key] = await mapIdentitySchema(out[key], childSchema, convert, direction);
+    if (!Object.hasOwn(out, key)) continue;
+    const condition = childSchema?.['x-tunnus-user-id-when'];
+    const effectiveSchema = condition
+      ? {
+          ...childSchema,
+          'x-tunnus-user-id':
+            direction === 'output' &&
+            out[condition.field] === condition.equals,
+        }
+      : childSchema;
+    out[key] = await mapIdentitySchema(out[key], effectiveSchema, convert, direction);
   }
   return out;
 }
