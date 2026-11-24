@@ -1,6 +1,6 @@
 # MCP identity pseudonymisation: implementation plan
 
-**Status:** design plan; no runtime changes in this PR  
+**Status:** initial implementation added in this PR; automated validation still required  
 **Target:** Tunnus account UI, PostgreSQL, admin API/MCP boundary  
 **Related design:** [CLI and MCP](cli-mcp.md), [admin API](admin-api.md), [MCP centralisation](mcp-centralization-plan.md)
 
@@ -42,7 +42,7 @@ This makes the effective setting key `(owner_user_id, auth_kind, auth_client_key
 
 ## 3. Data model
 
-Add a forward-only migration (next available migration number) with an owner-scoped identity directory, aliases, and client settings.
+The initial implementation adds a forward-only migration (`migrations/999_mcp_identity.sql`) with an owner-scoped identity directory, aliases, and client settings. Before release, confirm the migration filename follows the repository's migration numbering convention.
 
 ### `mcp_identity_subjects`
 
@@ -221,3 +221,20 @@ The feature is not complete until tests prove all of the following:
 - **Manual reference creation semantics:** manual creation always creates a new handle; automatic list/query creation reuses an active handle for the same subject and credential.
 - **Tool schema filtering:** decide whether to dynamically tailor `listTools` schemas/descriptions by identity mode or keep stable schemas and reject disallowed fields at call time. The latter is simpler; the former gives better model guidance. Both require server-side enforcement.
 - **`get me` operation mapping:** identify the exact OpenAPI operation that represents the authenticated caller's own profile and guarantee that it cannot be redirected to another user by a supplied UUID or pseudonym.
+
+
+## 10. Implementation status in this PR
+
+The initial implementation is now included in this PR:
+- PostgreSQL tables and owner-scoped subject/pseudonym/reference persistence;
+- verified HTTP credential scope and per-credential identity mode lookup;
+- account UI and CSRF-protected routes for subjects, aliases, linking, modes, and reference lifecycle;
+- OpenAPI identity annotations and MCP input/output projection;
+- focused MCP identity-mode tests.
+
+This is an initial implementation, not a release-ready completion. The following remain required before merge:
+- run the full test suite, lint, formatting, and typecheck;
+- add database-backed tests for reference scope, expiry, extension, revocation, uniqueness, and owner isolation;
+- verify all user-bearing response schemas and mutation/staged-action paths fail closed;
+- complete stdio credential identity support or explicitly document that restricted modes are HTTP-only;
+- review migration numbering and UI behaviour for production data volumes.
