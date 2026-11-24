@@ -674,7 +674,8 @@ ${notice}${error}
 <section><h3>Create temporary reference</h3>
 <form method="post" action="${esc(p.basePath)}/account/mcp-identities/refs">
 <input type="hidden" name="csrf" value="${esc(p.csrf)}">
-<label>Identity subject<select name="subjectId" required><option value="">Select subject</option>${subjectOptions}</select></label>
+<label>Existing identity subject (pseudonym or external identity)<select name="subjectId"><option value="">Select subject</option>${subjectOptions}</select></label>
+<label>Or select Tunnus user<select name="userId"><option value="">Select user</option>${userOptions}</select></label>
 <label>MCP credential<select name="credential" required><option value="">Select client</option>${clientOptions}</select></label>
 <button>Create new reference (24 h)</button></form></section>
 ${subjectCards || '<p>No identity subjects yet.</p>'}`);
