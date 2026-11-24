@@ -125,10 +125,12 @@ paths:
       summary: List users, ordered by email
       parameters:
         - name: q
+          x-tunnus-sensitive-user-search: true
           in: query
           description: Case-insensitive substring of email, display name or title
           schema: { type: string, minLength: 1, maxLength: 200 }
         - name: name
+          x-tunnus-sensitive-user-search: true
           in: query
           description: Case-insensitive substring of display name
           schema: { type: string, minLength: 1, maxLength: 200 }
@@ -137,6 +139,7 @@ paths:
           description: Case-insensitive substring of title
           schema: { type: string, minLength: 1, maxLength: 200 }
         - name: email
+          x-tunnus-sensitive-user-search: true
           in: query
           description: Exact email address (case-insensitive)
           schema: { type: string, minLength: 1, maxLength: 254 }
@@ -763,6 +766,7 @@ components:
       description: Unicode letters and digits, `.`, `_`, `-`; `/` separates segments; no leading or trailing slash
 
     UserRef:
+      x-tunnus-user-reference: true
       description: User UUID or email address
       oneOf:
         - type: string
@@ -777,6 +781,7 @@ components:
         - $ref: '#/components/schemas/GroupName'
 
     User:
+      x-tunnus-user-record: true
       type: object
       required:
         [
@@ -895,11 +900,15 @@ components:
         description: { type: string, maxLength: 500 }
 
     Membership:
+      x-tunnus-membership-record: true
       type: object
       required: [user_id, email, display_name, group_id, group_name, granted_by, granted_at]
       additionalProperties: false
       properties:
-        user_id: { type: string, format: uuid }
+        user_id:
+          type: string
+          format: uuid
+          x-tunnus-user-id: true
         email: { type: string }
         display_name: { type: string }
         group_id: { type: integer }
@@ -907,6 +916,7 @@ components:
         granted_by:
           type: [string, 'null']
           format: uuid
+          x-tunnus-user-id: true
           description: Admin who granted it; null for default groups joined at sign-up
         granted_at: { $ref: '#/components/schemas/Timestamp' }
 
