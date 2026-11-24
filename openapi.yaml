@@ -136,6 +136,7 @@ paths:
           description: Case-insensitive substring of display name
           schema: { type: string, minLength: 1, maxLength: 200 }
         - name: title
+          x-tunnus-sensitive-user-search: true
           in: query
           description: Case-insensitive substring of title
           schema: { type: string, minLength: 1, maxLength: 200 }
@@ -607,6 +608,7 @@ paths:
           in: query
           schema: { type: string, minLength: 1, maxLength: 50 }
         - name: target_id
+          x-tunnus-sensitive-user-search: true
           in: query
           schema: { type: string, minLength: 1, maxLength: 200 }
         - name: since
@@ -769,7 +771,7 @@ components:
 
     UserRef:
       x-tunnus-user-reference: true
-      description: User UUID or email address
+      description: Open mode accepts a user UUID or email. Restricted MCP modes accept typed pseudonyms and/or temporary references only.
       oneOf:
         - type: string
           format: uuid
