@@ -28,7 +28,7 @@ an admin web UI, and two valid secrets at the same time (see Rotation).
 adapter (`Client` model). We do not use that route:
 
 - `createResourceServerInfoResolver`, `alwaysGroupsOf` and the account page's
-  app list all need the *whole* client list, not one client by id.
+  app list all need the _whole_ client list, not one client by id.
 - `providerHolder` already rebuilds the provider when the signing key set
   changes. Clients become a second reason to rebuild, with the same swap-only-
   when-it-succeeds behaviour.
@@ -55,10 +55,10 @@ one API/CLI response that creates or rotates it.
 
 Each row has `source`:
 
-| source | Written by | Admin API may change it |
-|---|---|---|
-| `file` | startup sync from `CLIENTS_FILE` | No (409 `client_managed_by_file`), except `adopt` |
-| `api` | admin API, CLI, MCP, `tunnus-admin` | Yes |
+| source | Written by                          | Admin API may change it                           |
+| ------ | ----------------------------------- | ------------------------------------------------- |
+| `file` | startup sync from `CLIENTS_FILE`    | No (409 `client_managed_by_file`), except `adopt` |
+| `api`  | admin API, CLI, MCP, `tunnus-admin` | Yes                                               |
 
 Startup sync, run after migrations on every start:
 
@@ -164,15 +164,15 @@ version during implementation, and fall back to building a throwaway
 All under the existing bearer-token admin auth. New operations in
 `openapi.yaml` (the CLI and MCP tools are generated from it):
 
-| Method | Path | CLI | Notes |
-|---|---|---|---|
-| `GET` | `/clients` | `clients list` | Existing; now from the table; adds `source`, `disabled`, `secret_set_at`, timestamps |
-| `GET` | `/clients/{id}` | `clients get` | Never returns the secret |
-| `PUT` | `/clients/{id}` | `clients put` | Create or replace metadata. Idempotent, so provisioning scripts can re-run it. Body may carry `client_secret`; if creating without one, a secret is generated and returned **once** (201). Replacing without `client_secret` keeps the current secret (200) |
-| `PATCH` | `/clients/{id}` | `clients update` | Partial metadata change, `disabled` toggle |
-| `POST` | `/clients/{id}/secret` | `clients rotate-secret` | Sets the given secret or generates one (returned once). Option `revoke_tokens` (default false) also deletes the client's refresh tokens and grants |
-| `POST` | `/clients/{id}/adopt` | `clients adopt` | `file` → `api` |
-| `DELETE` | `/clients/{id}` | `clients delete` | Deletes the row and all `oidc_payloads` with that `clientId` (grants, refresh and access tokens, codes) |
+| Method   | Path                   | CLI                     | Notes                                                                                                                                                                                                                                                       |
+| -------- | ---------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/clients`             | `clients list`          | Existing; now from the table; adds `source`, `disabled`, `secret_set_at`, timestamps                                                                                                                                                                        |
+| `GET`    | `/clients/{id}`        | `clients get`           | Never returns the secret                                                                                                                                                                                                                                    |
+| `PUT`    | `/clients/{id}`        | `clients put`           | Create or replace metadata. Idempotent, so provisioning scripts can re-run it. Body may carry `client_secret`; if creating without one, a secret is generated and returned **once** (201). Replacing without `client_secret` keeps the current secret (200) |
+| `PATCH`  | `/clients/{id}`        | `clients update`        | Partial metadata change, `disabled` toggle                                                                                                                                                                                                                  |
+| `POST`   | `/clients/{id}/secret` | `clients rotate-secret` | Sets the given secret or generates one (returned once). Option `revoke_tokens` (default false) also deletes the client's refresh tokens and grants                                                                                                          |
+| `POST`   | `/clients/{id}/adopt`  | `clients adopt`         | `file` → `api`                                                                                                                                                                                                                                              |
+| `DELETE` | `/clients/{id}`        | `clients delete`        | Deletes the row and all `oidc_payloads` with that `clientId` (grants, refresh and access tokens, codes)                                                                                                                                                     |
 
 Errors: 404 unknown client, 409 `client_managed_by_file`, 400 validation
 with the failing field. The MCP server treats every client mutation like
@@ -237,7 +237,7 @@ mechanism signing keys and TOTP secrets get; no separate procedure.
    `syncFromFile(pool, fileClients, secret, logger)`. Every write in one
    transaction that also bumps `oidc_client_state.version` and runs
    `NOTIFY tunnus_clients`. Encryption via `deriveSubkey(KEY_ENCRYPTION_SECRET,
-   'client-secret')`.
+'client-secret')`.
 3. `src/clients/validate.js` (new): allowlist, URL rules, `oidc-provider`
    validation.
 4. `src/server.js`: after `migrate`, run `syncFromFile` with
