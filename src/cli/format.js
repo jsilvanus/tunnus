@@ -160,7 +160,8 @@ function constraints(schema, required) {
   if (required) parts.push('required');
   if (Array.isArray(schema?.enum)) parts.push(`one of ${schema.enum.join(', ')}`);
   if (schema?.default !== undefined) parts.push(`default ${JSON.stringify(schema.default)}`);
-  const target = Array.isArray(schema?.oneOf) ? schema.oneOf[0] : schema;
+  const alternatives = schema?.oneOf ?? schema?.anyOf;
+  const target = Array.isArray(alternatives) ? alternatives[0] : schema;
   const { minimum, maximum } = target ?? {};
   if (minimum !== undefined && maximum !== undefined) parts.push(`${minimum}..${maximum}`);
   else if (minimum !== undefined) parts.push(`at least ${minimum}`);
@@ -215,8 +216,8 @@ export function formatCommandHelp(op) {
  * @returns {string}
  */
 function scalarType(schema) {
-  if (Array.isArray(schema?.oneOf)) {
-    for (const sub of schema.oneOf) {
+  if (Array.isArray(schema?.oneOf ?? schema?.anyOf)) {
+    for (const sub of schema.oneOf ?? schema.anyOf) {
       /** @type {string} */
       const t = scalarType(sub);
       if (t !== 'value' && t !== 'string') return t;

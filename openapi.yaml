@@ -771,7 +771,7 @@ components:
 
     GroupRef:
       description: Group numeric ID or unique group name
-      oneOf:
+      anyOf:
         - type: integer
           minimum: 1
         - $ref: '#/components/schemas/GroupName'
