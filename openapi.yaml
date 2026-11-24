@@ -759,8 +759,8 @@ components:
       type: string
       minLength: 1
       maxLength: 128
-      pattern: '^[\p{L}\p{N}][\p{L}\p{N}._-]*(/[\p{L}\p{N}][\p{L}\p{N}._-]*)*$'
-      description: Unicode letters and digits, `.`, `_`, `-`; `/` separates segments; no leading or trailing slash
+      pattern: '^[\p{L}\p{N}][\p{L}\p{N}._:@*-]*(/[\p{L}\p{N}][\p{L}\p{N}._:@*-]*)*$'
+      description: Unicode letters and digits, `.`, `_`, `-`, `:`, `@`, `*`; `/` separates segments; no leading or trailing slash. Each segment starts with a letter or digit. Names are literal strings; `*` and `@` have no meaning to Tunnus itself.
 
     UserRef:
       description: User UUID or email address
