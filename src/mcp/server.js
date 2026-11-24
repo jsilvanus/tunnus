@@ -486,7 +486,7 @@ export function createMcpServer({
             structuredContent: structured,
           };
         } catch (err) {
-          if (err instanceof ApiError) return errorResult(describeApiError(err).join('\n'));
+          if (err instanceof ApiError) return errorResult(identityMode === 'open' ? describeApiError(err).join('\n') : 'The operation failed. Check the supplied reference and permissions, then try again.');
           throw err;
         }
       }
@@ -549,7 +549,7 @@ export function createMcpServer({
     try {
       const res = await callApi(tool.operation, {
         params,
-        body: tool.operation.bodySchema ? body : undefined,
+        body: tool.operation.bodySchema ? mappedBody : undefined,
       });
       const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, representIdentityUser);
       return {
@@ -557,7 +557,7 @@ export function createMcpServer({
         structuredContent: structured,
       };
     } catch (err) {
-      if (err instanceof ApiError) return errorResult(describeApiError(err).join('\n'));
+      if (err instanceof ApiError) return errorResult(identityMode === 'open' ? describeApiError(err).join('\n') : 'The operation failed. Check the supplied reference and permissions, then try again.');
       throw err;
     }
   });
