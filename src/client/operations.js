@@ -121,9 +121,10 @@ export function clientOperations(spec) {
     pathParams.sort((a, b) => op.path.indexOf(`{${a.name}}`) - op.path.indexOf(`{${b.name}}`));
 
     const successKey = ['200', '201'].find((k) => op.responses[k]);
-    const responseSchema = successKey
+    const rawResponseSchema = successKey
       ? op.responses[successKey].content?.['application/json']?.schema
       : undefined;
+    const responseSchema = rawResponseSchema ? inlineRefs(spec, rawResponseSchema) : null;
 
     const destructive = raw['x-tunnus-destructive'] === true;
     out.push({
@@ -140,7 +141,7 @@ export function clientOperations(spec) {
       queryParams,
       bodySchema: op.requestBodySchema ? inlineRefs(spec, op.requestBodySchema) : null,
       bodyRequired: op.requestBodyRequired,
-      responseSchema: responseSchema ? inlineRefs(spec, responseSchema) : null,
+      responseSchema,
       paged: queryParams.some((q) => q.name === 'cursor'),
       userRecord: responseSchema?.['x-tunnus-user-record'] === true,
       membershipRecord: responseSchema?.['x-tunnus-membership-record'] === true,
