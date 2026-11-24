@@ -674,4 +674,40 @@ describe('main', () => {
     expect(await main(['whoami'], t.io)).toBe(0);
     expect(t.errText.join('')).toContain('warning: ');
   });
+
+  it('prints a one-time notice on stderr when putClient or rotateClientSecret returns client_secret', async () => {
+    const withSecFetch = /** @type {any} */ (
+      async () =>
+        new Response(JSON.stringify({ client_id: 'a', client_secret: 's'.repeat(32) }), {
+          status: 201,
+          headers: { 'content-type': 'application/json' },
+        })
+    );
+    const created = io({}, { fetch: withSecFetch });
+    expect(
+      await main(
+        ['clients', 'put', 'a', '--redirect-uris', '["https://a.example.org/cb"]'],
+        created.io,
+      ),
+    ).toBe(0);
+    expect(created.errText.join('')).toContain('client secret is shown only once');
+
+    const noSecFetch = /** @type {any} */ (
+      async () =>
+        new Response(
+          JSON.stringify({ client_id: 'a', secret_set_at: '2026-01-01T00:00:00Z', revoked: 0 }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        )
+    );
+    const rotatedNoSec = io({}, { fetch: noSecFetch });
+    expect(await main(['clients', 'rotate-secret', 'a', '--yes'], rotatedNoSec.io)).toBe(0);
+    expect(rotatedNoSec.errText.join('')).toBe('');
+
+    const rotatedWithSec = io({}, { fetch: withSecFetch });
+    expect(await main(['clients', 'rotate-secret', 'a', '--yes'], rotatedWithSec.io)).toBe(0);
+    expect(rotatedWithSec.errText.join('')).toContain('client secret is shown only once');
+  });
 });

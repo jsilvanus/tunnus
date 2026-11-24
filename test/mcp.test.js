@@ -61,6 +61,12 @@ describe('tool list', () => {
         'retireKey',
         'listAuditEvents',
         'listClients',
+        'getClient',
+        'putClient',
+        'updateClient',
+        'rotateClientSecret',
+        'adoptClient',
+        'deleteClient',
         'getCommitList',
         'executeCommitList',
         'clearCommitList',
@@ -120,6 +126,21 @@ describe('tool list', () => {
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
+    });
+    expect(byName('putClient').annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+    });
+    expect(byName('rotateClientSecret').annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+    });
+    expect(byName('deleteClient').annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
     });
   });
 });

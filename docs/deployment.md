@@ -62,9 +62,22 @@ The receiver decides what to deploy; nothing in this repository names a target.
 
 ## Clients
 
-Clients are listed in the JSON file at `CLIENTS_FILE`. Each entry is passed to
-oidc-provider, so the fields are the client metadata of OpenID Connect Dynamic
-Client Registration, plus two Tunnus fields:
+Clients are stored in PostgreSQL (`oidc_clients`), and `CLIENTS_FILE` acts as an optional startup seed (`source = file`). When `CLIENTS_FILE` is set, entries are synced on start: new entries are inserted, `file` entries are updated from the file, `api` entries win over the file with a warning, and `file` entries removed from the file are disabled (not deleted).
+
+Clients can be created, updated, adopted (`file` -> `api`), rotated, and deleted without restarting Tunnus through:
+
+- The admin API (`PUT/PATCH/DELETE /clients/{id}`, `POST /clients/{id}/secret`, `POST /clients/{id}/adopt`), `tunnus` CLI, and MCP server.
+- Local provisioning without an API token via `tunnus-admin clients`:
+
+```bash
+docker compose exec -T -e CLIENT_SECRET app node bin/tunnus-admin.js clients put my-app --metadata-file - --secret-env CLIENT_SECRET
+docker compose exec -T -e CLIENT_SECRET app node bin/tunnus-admin.js clients rotate-secret my-app --secret-env CLIENT_SECRET
+docker compose exec -T app node bin/tunnus-admin.js clients adopt my-app
+docker compose exec -T app node bin/tunnus-admin.js clients list
+docker compose exec -T app node bin/tunnus-admin.js clients delete my-app
+```
+
+Each entry supports the allowlisted OpenID Connect metadata fields plus Tunnus fields:
 
 - `first_party`: the client skips the consent screen. A scope the client asks for
   later is added to its existing grant, so it does not show consent either.
@@ -103,7 +116,7 @@ advisory locks, so concurrent requests cannot exceed a limit. See
 | `DATABASE_URL`                                                             | PostgreSQL 16 connection string.                                                                                                                                                           |
 | `KEY_ENCRYPTION_SECRET`                                                    | Encrypts the signing keys at rest. Keep it stable. Changing it makes the stored keys unreadable. Store it in a secret manager. At least 32 characters; the example placeholder is refused. |
 | `COOKIE_SECRETS`                                                           | Comma-separated cookie signing keys, newest first. Each item at least 16 characters; items starting with `change-me` are refused.                                                          |
-| `CLIENTS_FILE`                                                             | JSON file with the registered clients. `${NAME}` values are read from the environment, so client secrets stay out of the file.                                                             |
+| `CLIENTS_FILE`                                                             | Optional JSON seed file for OIDC clients (`source = file`). `${NAME}` values are read from the environment, so client secrets stay out of the file.                                        |
 | `MAIL_PROVIDER`, `MAIL_FROM`, `SMTP_URL` or `BREVO_API_KEY`                | Sign-in codes are sent by mail. `console` is for development only: it logs the codes. With an https `ISSUER` it is refused unless `ALLOW_CONSOLE_MAIL=true`.                               |
 | `ALLOW_CONSOLE_MAIL`                                                       | Set to `true` only to allow `MAIL_PROVIDER=console` (or unset) with an https `ISSUER`, for a non-production test instance.                                                                 |
 | `DB_POOL_MAX`                                                              | Maximum database connections per process (default `10`). Idle connection errors are logged, not fatal.                                                                                     |
@@ -299,6 +312,9 @@ Metrics are in a private registry, prefixed `tunnus_`:
 | `tunnus_mail_relayed_total`                     | Mails sent through the mail relay endpoint                              |
 | `tunnus_mail_relay_auth_failures_total`         | Failed mail relay authentications                                       |
 | `tunnus_users{status}`                          | Users by status (gauge)                                                 |
+| `tunnus_clients{source,disabled}`               | Registered OIDC clients by source and disabled state (gauge)            |
+| `tunnus_client_reloads_total`                   | OIDC provider client reloads                                            |
+| `tunnus_client_invalid_total`                   | OIDC client rows skipped as invalid during reload                       |
 | `tunnus_signing_key_age_seconds`                | Age of the active signing key (gauge)                                   |
 | `tunnus_cleanup_last_success_timestamp_seconds` | Time of the last complete cleanup run; `0` before the first run (gauge) |
 

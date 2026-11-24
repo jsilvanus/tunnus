@@ -8,14 +8,14 @@ the follow-up list in [`TODO.md`](TODO.md). Operational settings are in
 
 ## Who can do what
 
-| Actor                            | Can                                                                                           | Limited by                                                                             |
-| -------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Anyone on the internet           | Ask for sign-in codes for any address; try codes and links; call the public endpoints         | Per-address and per-IP limits, daily cap, failed-attempt lockout                       |
-| A person who owns an address     | Sign in as the account for that address                                                       | Their mailbox; the code and link expire after 10 minutes                               |
-| A relying party (client)         | Receive the claims of users who sign in to it; refresh and revoke its own tokens              | Client registration in `CLIENTS_FILE`; `first_party` and `always_include_groups` flags |
-| An admin (`is_admin` user)       | Use the admin API: users, groups, memberships, keys, clients (read-only), audit, admin tokens | Admin token authentication; audit log                                                  |
-| An operator with database access | Read everything in the database, including hashed tokens and encrypted codes                  | Out of scope for the application; protect the database                                 |
-| An operator with the secrets     | Decrypt stored codes, derive any key                                                          | Out of scope; keep `KEY_ENCRYPTION_SECRET` and `COOKIE_SECRETS` safe                   |
+| Actor                            | Can                                                                                   | Limited by                                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Anyone on the internet           | Ask for sign-in codes for any address; try codes and links; call the public endpoints | Per-address and per-IP limits, daily cap, failed-attempt lockout                                           |
+| A person who owns an address     | Sign in as the account for that address                                               | Their mailbox; the code and link expire after 10 minutes                                                   |
+| A relying party (client)         | Receive the claims of users who sign in to it; refresh and revoke its own tokens      | Client registration in `oidc_clients` (or `CLIENTS_FILE`); `first_party` and `always_include_groups` flags |
+| An admin (`is_admin` user)       | Use the admin API: users, groups, memberships, keys, clients, audit, admin tokens     | Admin token authentication; audit log                                                                      |
+| An operator with database access | Read everything in the database, including hashed tokens and encrypted codes          | Out of scope for the application; protect the database                                                     |
+| An operator with the secrets     | Decrypt stored codes, derive any key                                                  | Out of scope; keep `KEY_ENCRYPTION_SECRET` and `COOKIE_SECRETS` safe                                       |
 
 ## Email verification and `email_verified` (L1)
 
@@ -58,6 +58,21 @@ the follow-up list in [`TODO.md`](TODO.md). Operational settings are in
   checked against the HMAC in about a million operations. This is acceptable
   because a code lives 10 minutes and is refused after 5 wrong tries.
 - The link token is 32 random bytes; only its HMAC is stored.
+
+## Client secrets: storage and provisioning
+
+- Confidential OIDC client secrets are encrypted at rest with AES-256-GCM using
+  a 32-byte HKDF subkey derived from `KEY_ENCRYPTION_SECRET` (purpose
+  `client-secret`), rather than hashed, because `oidc-provider` requires the
+  plaintext secret to authenticate clients (`client_secret_basic` /
+  `client_secret_post`).
+- Secrets are never returned after creation or rotation, never exposed by
+  `GET /clients` or `tunnus-admin clients list`, and never written to logs or
+  `audit_events`.
+- When provisioning locally via `tunnus-admin clients put` or `rotate-secret`,
+  supplied secrets are read from `--secret-env <VAR>` (never argv) and never
+  printed to stdout or stderr. Generated secrets (32 random bytes, base64url)
+  are printed once on stdout.
 
 ## Limits and lockouts
 

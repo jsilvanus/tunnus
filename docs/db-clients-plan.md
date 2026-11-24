@@ -1,6 +1,6 @@
 # Plan: OIDC clients in the database
 
-Status: plan, not implemented. Replaces the "Clients managed in the database
+Status: implemented. Replaces the "Clients managed in the database
 through the admin API" item under "Later" in [TODO.md](TODO.md) and answers
 the open question in [plan.md](plan.md).
 

@@ -8,6 +8,7 @@ import { createPool, migrate } from '../../src/db.js';
 import { ensureDefaultGroups } from '../../src/accounts.js';
 import { createMailer } from '../../src/mail.js';
 import { ensureSigningKey } from '../../src/oidc/keys.js';
+import { syncFromFile } from '../../src/clients/store.js';
 
 export const REDIRECT = 'https://rp.example.org/cb';
 export const POST_LOGOUT = 'https://rp.example.org/bye';
@@ -118,21 +119,23 @@ export async function startTunnus({ schema, env = {}, clients, transport }) {
     },
   };
 
-  const { app, holder } = await createApp(
+  const seedClients = clients ?? [
+    {
+      client_id: 'rp',
+      client_secret: 'rp-secret',
+      redirect_uris: [REDIRECT],
+      post_logout_redirect_uris: [POST_LOGOUT],
+      token_endpoint_auth_method: 'client_secret_post',
+      first_party: true,
+      always_include_groups: true,
+    },
+  ];
+  await syncFromFile(pool, seedClients, config.keyEncryptionSecret);
+
+  const { app, holder, metrics } = await createApp(
     {
       config,
       pool,
-      clients: clients ?? [
-        {
-          client_id: 'rp',
-          client_secret: 'rp-secret',
-          redirect_uris: [REDIRECT],
-          post_logout_redirect_uris: [POST_LOGOUT],
-          token_endpoint_auth_method: 'client_secret_post',
-          first_party: true,
-          always_include_groups: true,
-        },
-      ],
       mailer: capturing,
     },
     { validateResponses: true },
@@ -196,8 +199,9 @@ export async function startTunnus({ schema, env = {}, clients, transport }) {
     interactionPath,
     exchange,
     holder,
+    metrics,
     async close() {
-      holder.stop();
+      await holder.stop();
       await new Promise((r) => server.close(r));
       await pool.end();
     },

@@ -6,6 +6,12 @@ import { accountIdOf, touchLastLogin } from './loginActivity.js';
 import { pickLocale } from '../i18n.js';
 import { alwaysGroupsOf, scopeWithGroups } from './alwaysGroups.js';
 import { logoutDonePage, logoutPage } from '../web/pages.js';
+import {
+  EXTRA_CLIENT_METADATA_PROPERTIES,
+  normalizeClientForProvider,
+} from '../clients/validate.js';
+
+export { EXTRA_CLIENT_METADATA_PROPERTIES };
 
 /**
  * Create the getResourceServerInfo resolver for RFC 8707 / RFC 9728 resource indicators.
@@ -116,25 +122,9 @@ export function createProvider({ config, pool, clients, jwks }) {
 
   const provider = new Provider(config.issuer, {
     adapter: createAdapterClass(pool),
-    clients: clients.map(
-      ({ client_id, always_include_groups, first_party, disabled, ...rest }) => ({
-        id_token_signed_response_alg: 'RS256',
-        ...rest,
-        client_id,
-        always_include_groups: Boolean(always_include_groups),
-        first_party: Boolean(first_party),
-        disabled: Boolean(disabled),
-      }),
-    ),
+    clients: clients.map(normalizeClientForProvider),
     extraClientMetadata: {
-      properties: [
-        'first_party',
-        'always_include_groups',
-        'disabled',
-        'allowed_resources',
-        'backchannel_logout_uri',
-        'backchannel_logout_session_required',
-      ],
+      properties: EXTRA_CLIENT_METADATA_PROPERTIES,
     },
     jwks,
     cookies: { keys: config.cookieSecrets },

@@ -236,5 +236,11 @@ async function run(argv, io) {
   if (op.operationId === 'createAdminToken' && result.status === 201) {
     err.write('The token is shown only once. Store it now.\n');
   }
+  if (
+    (op.operationId === 'putClient' || op.operationId === 'rotateClientSecret') &&
+    typeof result.body?.client_secret === 'string'
+  ) {
+    err.write('The client secret is shown only once. Store it now.\n');
+  }
   return 0;
 }

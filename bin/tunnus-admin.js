@@ -3,6 +3,7 @@ import { parseArgs } from 'node:util';
 import pino from 'pino';
 import { ensureDefaultGroups } from '../src/accounts.js';
 import { bootstrapAdmin, BootstrapInputError, validateBootstrapInput } from '../src/bootstrap.js';
+import { runClientsAdmin } from '../src/clients/adminCli.js';
 import { loadConfig, parseList } from '../src/config.js';
 import { createPool, migrate } from '../src/db.js';
 import { runCleanup } from '../src/jobs/cleanup.js';
@@ -12,6 +13,13 @@ const USAGE = `Usage:
   tunnus-admin bootstrap --email <address> [--name <display name>]
                          [--label <label>] [--expires-days <1-365>]
   tunnus-admin cleanup
+  tunnus-admin clients put <client_id> --metadata-file <path|->
+                         [--secret-env <VAR>] [--generate-secret]
+  tunnus-admin clients rotate-secret <client_id> [--secret-env <VAR>]
+                         [--generate-secret] [--revoke-tokens]
+  tunnus-admin clients adopt <client_id>
+  tunnus-admin clients delete <client_id>
+  tunnus-admin clients list [--json]
   tunnus-admin --help
 
 bootstrap creates the first admin (or promotes an existing user) and prints an
@@ -23,9 +31,14 @@ in-process job) and prints the counts as JSON on stdout. It exits 0 when the
 run completed or another run holds the lock, and 1 when a task failed. Reads the
 full server configuration from the environment.
 
+clients manages OIDC clients in the database without an API token. Reads
+DATABASE_URL (and KEY_ENCRYPTION_SECRET for put / rotate-secret) from the
+environment and emits NOTIFY tunnus_clients so running servers reload.
+
 Inside the container:
   docker compose exec app node bin/tunnus-admin.js bootstrap --email admin@example.org
   docker compose exec app node bin/tunnus-admin.js cleanup
+  docker compose exec -T -e CLIENT_SECRET app node bin/tunnus-admin.js clients put my-app --metadata-file - --secret-env CLIENT_SECRET
 `;
 
 /**
@@ -69,6 +82,9 @@ async function cleanupCommand(env, io) {
  * @returns {Promise<number>} exit code: 0 success, 1 failure, 2 usage error
  */
 async function main(argv, env, io) {
+  if (argv[0] === 'clients') {
+    return runClientsAdmin(argv.slice(1), env, io);
+  }
   let parsed;
   try {
     parsed = parseArgs({
@@ -92,7 +108,7 @@ async function main(argv, env, io) {
     return 0;
   }
   if (positionals.length !== 1 || !['bootstrap', 'cleanup'].includes(positionals[0])) {
-    io.err.write(`Expected the bootstrap or cleanup command.\n\n${USAGE}`);
+    io.err.write(`Expected the bootstrap, cleanup, or clients command.\n\n${USAGE}`);
     return 2;
   }
   if (positionals[0] === 'cleanup') return cleanupCommand(env, io);

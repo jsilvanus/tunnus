@@ -6,6 +6,7 @@
  *   pool: import('pg').Pool,
  *   config: import('../config.js').Config,
  *   clients: Record<string, any>[],
+ *   getClients?: () => Record<string, any>[],
  *   actor: { userId: string, tokenId: string },
  *   ip: string | null,
  *   params: Record<string, any>,

@@ -103,6 +103,19 @@ describe('MCP over the admin API, in memory', () => {
     await call('listKeys');
     await call('listAuditEvents', { limit: 5 });
     await call('listClients');
+    await call('getClient', { clientId: 'rp' });
+    await call('putClient', {
+      clientId: 'mcp-client-it',
+      body: {
+        redirect_uris: ['https://mcp-client.example.org/cb'],
+        token_endpoint_auth_method: 'client_secret_post',
+      },
+    });
+    await call('updateClient', {
+      clientId: 'mcp-client-it',
+      body: { client_name: 'MCP Integration App' },
+    });
+    await call('adoptClient', { clientId: 'rp' });
 
     expect([...called].sort()).toEqual(tools().sort());
 
@@ -157,6 +170,10 @@ function tools() {
     'listKeys',
     'listAuditEvents',
     'listClients',
+    'getClient',
+    'putClient',
+    'updateClient',
+    'adoptClient',
   ];
 }
 

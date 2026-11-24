@@ -635,7 +635,7 @@ paths:
       operationId: listClients
       x-tunnus-cli: clients list
       tags: [clients]
-      summary: List configured clients (read-only, from CLIENTS_FILE)
+      summary: List registered OIDC clients
       description: Client secrets are never returned.
       responses:
         '200':
@@ -650,6 +650,121 @@ paths:
                   items:
                     type: array
                     items: { $ref: '#/components/schemas/Client' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /clients/{clientId}:
+    parameters:
+      - { $ref: '#/components/parameters/ClientId' }
+    get:
+      operationId: getClient
+      x-tunnus-cli: clients get
+      tags: [clients]
+      summary: Get an OIDC client
+      description: Client secrets are never returned.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Client' }
+        default: { $ref: '#/components/responses/Error' }
+    put:
+      operationId: putClient
+      x-tunnus-cli: clients put
+      tags: [clients]
+      summary: Create or replace an OIDC client
+      description: |
+        Idempotent. When creating a confidential client without `client_secret`,
+        a random secret is generated and returned once (`201`). Replacing without
+        `client_secret` keeps the existing secret (`200`). File-seeded clients
+        (`source: file`) return `409 client_managed_by_file` until adopted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClientPut' }
+      responses:
+        '200':
+          description: Replaced
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Client' }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ClientWithSecret'
+                  - $ref: '#/components/schemas/Client'
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      operationId: updateClient
+      x-tunnus-cli: clients update
+      tags: [clients]
+      summary: Update an OIDC client
+      description: Partial metadata update or `disabled` toggle. `client_secret` cannot be set here; use `clients rotate-secret`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClientUpdate' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Client' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: deleteClient
+      x-tunnus-cli: clients delete
+      tags: [clients]
+      summary: Delete an OIDC client and revoke its tokens
+      description: Deletes an API-managed client and revokes all of its grants, tokens, and authorization codes. File-seeded clients return `409 client_managed_by_file`.
+      x-tunnus-destructive: true
+      responses:
+        '204': { description: Deleted }
+        default: { $ref: '#/components/responses/Error' }
+
+  /clients/{clientId}/secret:
+    parameters:
+      - { $ref: '#/components/parameters/ClientId' }
+    post:
+      operationId: rotateClientSecret
+      x-tunnus-cli: clients rotate-secret
+      tags: [clients]
+      summary: Rotate an OIDC client secret
+      description: 'Sets the given `client_secret` or generates a new random secret (returned once). Pass `revoke_tokens: true` to revoke existing grants and tokens.'
+      x-tunnus-destructive: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClientRotateSecret' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClientSecretRotated' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /clients/{clientId}/adopt:
+    parameters:
+      - { $ref: '#/components/parameters/ClientId' }
+    post:
+      operationId: adoptClient
+      x-tunnus-cli: clients adopt
+      tags: [clients]
+      summary: Adopt a file-seeded client for API management
+      description: 'Changes a `CLIENTS_FILE`-seeded client (`source: file`) to API management (`source: api`). Idempotent if already `api`.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Client' }
         default: { $ref: '#/components/responses/Error' }
 
 components:
@@ -682,6 +797,16 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    ClientId:
+      name: clientId
+      in: path
+      required: true
+      description: OIDC client identifier
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 100
+        pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$'
     Limit:
       name: limit
       in: query
@@ -715,7 +840,8 @@ components:
               description: |
                 Stable machine-readable code: `invalid_request` (400),
                 `unauthorized` (401), `forbidden` (403), `not_found` (404),
-                `conflict`, `last_admin`, `default_group`, `key_active` (409),
+                `conflict`, `last_admin`, `default_group`, `key_active`,
+                `client_managed_by_file` (409),
                 `rate_limited` (429), `internal` (500).
             message: { type: string }
             details:
@@ -1085,13 +1211,167 @@ components:
           grant_types,
           first_party,
           always_include_groups,
+          source,
+          disabled,
+          secret_set_at,
+          created_at,
+          updated_at,
         ]
       additionalProperties: false
       properties:
         client_id: { type: string }
-        redirect_uris: { type: array, items: { type: string } }
-        post_logout_redirect_uris: { type: array, items: { type: string } }
-        token_endpoint_auth_method: { type: string }
-        grant_types: { type: array, items: { type: string } }
+        source: { type: string, enum: [file, api] }
+        disabled: { type: boolean }
+        token_endpoint_auth_method:
+          { type: string, enum: [client_secret_basic, client_secret_post, none] }
         first_party: { type: boolean }
         always_include_groups: { type: boolean }
+        redirect_uris: { type: array, items: { type: string } }
+        post_logout_redirect_uris: { type: array, items: { type: string } }
+        grant_types: { type: array, items: { type: string } }
+        response_types: { type: array, items: { type: string } }
+        allowed_resources: { type: array, items: { type: string } }
+        backchannel_logout_uri: { type: [string, 'null'] }
+        backchannel_logout_session_required: { type: [boolean, 'null'] }
+        id_token_signed_response_alg: { type: string }
+        client_name: { type: [string, 'null'] }
+        secret_set_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+
+    ClientWithSecret:
+      type: object
+      description: A newly created Client plus the generated client_secret, shown only once
+      required:
+        [
+          client_id,
+          redirect_uris,
+          post_logout_redirect_uris,
+          token_endpoint_auth_method,
+          grant_types,
+          first_party,
+          always_include_groups,
+          source,
+          disabled,
+          secret_set_at,
+          created_at,
+          updated_at,
+          client_secret,
+        ]
+      additionalProperties: false
+      properties:
+        client_id: { type: string }
+        source: { type: string, enum: [file, api] }
+        disabled: { type: boolean }
+        token_endpoint_auth_method:
+          { type: string, enum: [client_secret_basic, client_secret_post, none] }
+        first_party: { type: boolean }
+        always_include_groups: { type: boolean }
+        redirect_uris: { type: array, items: { type: string } }
+        post_logout_redirect_uris: { type: array, items: { type: string } }
+        grant_types: { type: array, items: { type: string } }
+        response_types: { type: array, items: { type: string } }
+        allowed_resources: { type: array, items: { type: string } }
+        backchannel_logout_uri: { type: [string, 'null'] }
+        backchannel_logout_session_required: { type: [boolean, 'null'] }
+        id_token_signed_response_alg: { type: string }
+        client_name: { type: [string, 'null'] }
+        secret_set_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+        client_secret: { type: string }
+
+    ClientSecretRotated:
+      type: object
+      required: [client_id, secret_set_at, revoked]
+      additionalProperties: false
+      properties:
+        client_id: { type: string }
+        secret_set_at: { $ref: '#/components/schemas/Timestamp' }
+        client_secret:
+          type: string
+          description: Present only when the secret was generated; shown once
+        revoked: { type: integer, minimum: 0 }
+
+    ClientPut:
+      type: object
+      required: [redirect_uris]
+      additionalProperties: false
+      properties:
+        redirect_uris:
+          type: array
+          minItems: 1
+          items: { type: string }
+        post_logout_redirect_uris:
+          type: array
+          items: { type: string }
+        token_endpoint_auth_method:
+          type: string
+          enum: [client_secret_basic, client_secret_post, none]
+        grant_types:
+          type: array
+          items: { type: string }
+        response_types:
+          type: array
+          items: { type: string }
+        first_party: { type: boolean }
+        always_include_groups: { type: boolean }
+        allowed_resources:
+          type: array
+          items: { type: string }
+        backchannel_logout_uri: { type: string }
+        backchannel_logout_session_required: { type: boolean }
+        id_token_signed_response_alg: { type: string }
+        client_name: { type: string, minLength: 1, maxLength: 200 }
+        client_secret:
+          type: string
+          minLength: 32
+          description: Optional client secret (at least 32 characters). Generated on create if omitted for confidential clients.
+        disabled:
+          type: boolean
+          default: false
+
+    ClientUpdate:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        redirect_uris:
+          type: array
+          minItems: 1
+          items: { type: string }
+        post_logout_redirect_uris:
+          type: array
+          items: { type: string }
+        token_endpoint_auth_method:
+          type: string
+          enum: [client_secret_basic, client_secret_post, none]
+        grant_types:
+          type: array
+          items: { type: string }
+        response_types:
+          type: array
+          items: { type: string }
+        first_party: { type: boolean }
+        always_include_groups: { type: boolean }
+        allowed_resources:
+          type: array
+          items: { type: string }
+        backchannel_logout_uri: { type: [string, 'null'] }
+        backchannel_logout_session_required: { type: boolean }
+        id_token_signed_response_alg: { type: string }
+        client_name: { type: [string, 'null'], minLength: 1, maxLength: 200 }
+        disabled: { type: boolean }
+
+    ClientRotateSecret:
+      type: object
+      additionalProperties: false
+      properties:
+        client_secret:
+          type: string
+          minLength: 32
+          description: Optional new client secret (at least 32 characters). Generated if omitted.
+        revoke_tokens:
+          type: boolean
+          default: false
+          description: Revoke existing grants and tokens for this client
