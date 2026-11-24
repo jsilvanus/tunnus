@@ -214,7 +214,7 @@ export async function createMcpIdentityRef(pool, scope, userId, options = {}) {
  */
 export async function extendMcpIdentityRef(pool, { ownerUserId, refId }) {
   const { rows } = await pool.query(
-    `UPDATE mcp_identity_refs SET expires_at = now() + interval '24 hours', updated_at = now()
+    `UPDATE mcp_identity_refs SET expires_at = GREATEST(expires_at, now()) + interval '24 hours', updated_at = now()
       WHERE id = $1 AND owner_user_id = $2 AND revoked_at IS NULL AND expires_at > now()
       RETURNING id, expires_at`,
     [refId, ownerUserId],
