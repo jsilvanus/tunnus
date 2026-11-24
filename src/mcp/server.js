@@ -188,7 +188,7 @@ async function mapIdentitySchema(value, schema, convert, direction) {
     if (typeof value !== 'string') throw new Error('Invalid user reference');
     return convert(value);
   }
-  if (direction === 'output' && schema['x-tunnus-user-id'] === true) {
+  if (direction === 'output' && (schema['x-tunnus-user-id'] === true || schema['x-tunnus-user-reference'] === true)) {
     if (typeof value !== 'string' || !value) return value;
     return convert(value);
   }
@@ -370,7 +370,7 @@ export function createMcpServer({
       if (stateStore?.executeCommitList) {
         const res = await stateStore.executeCommitList({ userId, callApi, opsById });
         if (!res.ok) {
-          return errorResult(res.error);
+          return errorResult(identityMode === 'open' ? res.error : 'One or more staged operations failed. Review the commit list in the account page.');
         }
         return {
           content: [
@@ -501,7 +501,7 @@ export function createMcpServer({
     try {
       const res = await callApi(tool.operation, {
         params,
-        body: tool.operation.bodySchema ? body : undefined,
+        body: tool.operation.bodySchema ? mappedBody : undefined,
       });
       const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, identity.representUser);
       return {
