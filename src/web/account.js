@@ -582,6 +582,17 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
       [acct.user.id, clientId],
     );
 
+    await pool.query(
+      `DELETE FROM mcp_identity_refs
+        WHERE owner_user_id = $1 AND auth_kind = 'oauth' AND auth_client_key = $2`,
+      [acct.user.id, clientId],
+    );
+    await pool.query(
+      `DELETE FROM mcp_client_settings
+        WHERE owner_user_id = $1 AND auth_kind = 'oauth' AND auth_client_key = $2`,
+      [acct.user.id, clientId],
+    );
+
     await audit(pool, {
       actorUserId: acct.user.id,
       action: 'account_app_revoked',
