@@ -40,6 +40,7 @@ function validClaims(overrides = {}) {
     iss: ISSUER,
     aud: RESOURCE,
     sub: '6f1b1d0e-3c1e-4c7a-9a52-2f0f5a3c9b11',
+    client_id: 'test-mcp-client',
     scope: 'openid mcp',
     iat: now - 5,
     exp: now + 300,

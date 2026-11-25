@@ -56,7 +56,7 @@ export async function setMcpIdentityMode(pool, scope, mode) {
 }
 
 /** @param {{ ownerUserId: string, authKind: 'oauth' | 'admin_token', authClientKey: string }} scope */
-function scopeOf(scope) {
+export function scopeOf(scope) {
   assertScope(scope);
   return scope;
 }

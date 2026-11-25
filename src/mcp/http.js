@@ -57,6 +57,7 @@ export function createMcpHttpApp({
   stateStore,
   issuer,
   accountUrl,
+  identityPool,
   resolveTokenUser,
 }) {
   const app = express();
@@ -168,6 +169,7 @@ export function createMcpHttpApp({
       accountUrl,
       userId: res.locals.user?.id,
       actor: res.locals.actor,
+      identity,
     });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,

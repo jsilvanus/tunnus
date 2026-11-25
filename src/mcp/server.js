@@ -296,6 +296,9 @@ export function createMcpServer({
   const resolvedCache = new Map();
   const representedCache = new Map();
   const resolveIdentityUser = async (value) => {
+    if (identityMode === 'ref_only' && typeof value === 'string' && value.startsWith('pseudo:')) {
+      throw new Error('Pseudonym inputs are not allowed in ref_only mode');
+    }
     if (resolvedCache.has(value)) return resolvedCache.get(value);
     if (!identity?.resolveUser) throw new Error('Restricted MCP identity context is unavailable');
     const result = await identity.resolveUser(value);
