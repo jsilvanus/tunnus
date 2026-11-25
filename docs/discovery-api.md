@@ -56,7 +56,59 @@ Since Tunnus is already the **single source of truth for identity and OAuth2/OID
 
 ---
 
-### B. Admin Management API (`<issuer>/admin/api/v1`)
+### B. OIDC Client Self-Registration API (Edge / Dynamic Instances)
+
+Allows registered OIDC clients (such as edge daemons, `sissi-signage`, or Canva companion servers) to self-register and manage their own discovery catalog entries without requiring master admin tokens.
+
+#### Authentication
+Client applications authenticate using their OIDC client credentials via:
+1. **HTTP Basic Auth**: `Authorization: Basic base64(<client_id>:<client_secret>)`
+2. **Custom Headers**:
+   ```http
+   X-Client-Id: <client_id>
+   X-Client-Secret: <client_secret>
+   ```
+
+Secrets are matched against `oidc_clients.secret_enc` using constant-time cryptographic comparison (`timingSafeEqual`).
+
+#### Ownership & Access Rules
+- Services registered by an OIDC client record `owner_client_id = <client_id>`.
+- Only the owning client (or master administrator via Admin API) may modify or delete the service.
+- If a client is disabled (`disabled = true`) or its metadata contains `allow_discovery_registration: false`, self-registration requests are rejected with `403 Forbidden`.
+
+| Method | Path | Purpose | Success Code |
+|---|---|---|---|
+| `GET` | `/api/v1/discovery/services/{id}` | Inspect single discovered service | `200 OK` |
+| `PUT` | `/api/v1/discovery/services/{id}` | Self-register or update owned service | `201 Created` / `200 OK` |
+| `DELETE` | `/api/v1/discovery/services/{id}` | Deregister / delete owned service | `204 No Content` |
+| `POST` | `/api/v1/discovery/services/{id}/heartbeat` | Liveness heartbeat (`updated_at = now()`) | `200 OK` |
+
+#### Example Self-Registration Request (`PUT /api/v1/discovery/services/sissi-signage`):
+```http
+PUT /api/v1/discovery/services/sissi-signage HTTP/1.1
+Host: tunnus.riihimaenseurakunta.fi
+Authorization: Basic c2lzc2ktY2xpZW50OnNlY3JldDEyMzQ1Ng==
+Content-Type: application/json
+
+{
+  "name": "Kyltti / Sissi Infonäytöt",
+  "type": "signage",
+  "venue": "parish-wide",
+  "endpoint_url": "https://kehitys.riihimaenseurakunta.fi/sissi",
+  "auth": {
+    "type": "oidc",
+    "client_id": "sissi-client"
+  },
+  "capabilities": ["screen_push", "playlist_management", "export_target"],
+  "metadata": {
+    "default_view": "parish_bulletin"
+  }
+}
+```
+
+---
+
+### C. Admin Management API (`<issuer>/admin/api/v1`)
 
 Requires an admin token (`Authorization: Bearer tun_...`).
 
@@ -71,7 +123,7 @@ Requires an admin token (`Authorization: Bearer tun_...`).
 
 ---
 
-## 3. Database Schema Concept (`010_discovery_services.sql`)
+## 3. Database Schema Concept (`010_discovery_services.sql` & `011_discovery_client_ownership.sql`)
 
 ```sql
 CREATE TABLE IF NOT EXISTS discovery_services (
@@ -79,11 +131,12 @@ CREATE TABLE IF NOT EXISTS discovery_services (
   name text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 100),
   type text NOT NULL CHECK (type ~ '^[a-z0-9_-]{1,32}$'),
   venue text NOT NULL CHECK (venue ~ '^[a-z0-9_-]{1,32}$'),
-  url text NOT NULL CHECK (url ~ '^https?://'),
+  endpoint_url text NOT NULL CHECK (endpoint_url ~ '^https?://'),
   auth jsonb NOT NULL DEFAULT '{"type":"none"}'::jsonb,
   capabilities text[] NOT NULL DEFAULT '{}',
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   disabled boolean NOT NULL DEFAULT false,
+  owner_client_id text REFERENCES oidc_clients(client_id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   created_by uuid REFERENCES users(id) ON DELETE SET NULL,
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -93,6 +146,7 @@ CREATE TABLE IF NOT EXISTS discovery_services (
 CREATE INDEX IF NOT EXISTS discovery_services_type_idx ON discovery_services(type);
 CREATE INDEX IF NOT EXISTS discovery_services_venue_idx ON discovery_services(venue);
 CREATE INDEX IF NOT EXISTS discovery_services_disabled_idx ON discovery_services(disabled);
+CREATE INDEX IF NOT EXISTS discovery_services_owner_client_idx ON discovery_services(owner_client_id);
 ```
 
 ---

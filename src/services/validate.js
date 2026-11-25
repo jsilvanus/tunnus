@@ -8,7 +8,7 @@ export const ALLOWED_AUTH_TYPES = new Set(['none', 'api_key', 'bearer', 'oidc'])
  */
 export class ServiceError extends Error {
   /**
-   * @param {'invalid_request' | 'not_found' | 'conflict'} code
+   * @param {'invalid_request' | 'not_found' | 'conflict' | 'forbidden'} code
    * @param {string} message
    * @param {{ path: string, message: string }[]} [details]
    */

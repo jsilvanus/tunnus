@@ -8,7 +8,7 @@ import {
 export { ServiceError };
 
 const SERVICE_COLUMNS =
-  'id, name, type, venue, endpoint_url, auth, capabilities, metadata, disabled, created_at, updated_at';
+  'id, name, type, venue, endpoint_url, auth, capabilities, metadata, disabled, owner_client_id, created_at, updated_at';
 
 /**
  * Format a database row as a service response object.
@@ -26,6 +26,7 @@ export function serviceJson(row) {
     capabilities: Array.isArray(row.capabilities) ? row.capabilities : [],
     metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
     disabled: Boolean(row.disabled),
+    owner_client_id: row.owner_client_id ?? null,
     created_at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
     updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
   };
@@ -46,6 +47,7 @@ export function discoveredServiceJson(row) {
     auth: row.auth && typeof row.auth === 'object' ? row.auth : { type: 'none' },
     capabilities: Array.isArray(row.capabilities) ? row.capabilities : [],
     metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
+    owner_client_id: row.owner_client_id ?? null,
   };
 }
 
@@ -195,6 +197,157 @@ export async function putService(pool, id, body, { userId } = {}) {
   }).catch(() => {});
 
   return { service, created };
+}
+
+/**
+ * Put service by an authenticated OIDC client (self-registration).
+ * Enforces that if the service already exists, it must either have no owner or be owned by the same clientId.
+ * @param {import('pg').Pool} pool
+ * @param {string} id
+ * @param {Record<string, any>} body
+ * @param {{ clientId: string }} options
+ */
+export async function putClientService(pool, id, body, { clientId }) {
+  const cleanId = validateServiceId(id);
+
+  // Check ownership if existing
+  const existingRes = await pool.query(
+    'SELECT id, owner_client_id FROM discovery_services WHERE id = $1',
+    [cleanId],
+  );
+  if (existingRes.rows.length > 0) {
+    const existing = existingRes.rows[0];
+    if (existing.owner_client_id && existing.owner_client_id !== clientId) {
+      throw new ServiceError(
+        'forbidden',
+        `Service '${cleanId}' is owned by client '${existing.owner_client_id}'`,
+      );
+    }
+  }
+
+  const validated = validateServiceInput({ ...body, id: cleanId }, { isUpdate: false });
+
+  const query = `
+    INSERT INTO discovery_services (
+      id, name, type, venue, endpoint_url, auth, capabilities, metadata, disabled, owner_client_id
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    ON CONFLICT (id) DO UPDATE SET
+      name = EXCLUDED.name,
+      type = EXCLUDED.type,
+      venue = EXCLUDED.venue,
+      endpoint_url = EXCLUDED.endpoint_url,
+      auth = EXCLUDED.auth,
+      capabilities = EXCLUDED.capabilities,
+      metadata = EXCLUDED.metadata,
+      disabled = EXCLUDED.disabled,
+      owner_client_id = EXCLUDED.owner_client_id,
+      updated_at = now()
+    RETURNING ${SERVICE_COLUMNS}, (xmax = 0) AS created
+  `;
+
+  const values = [
+    validated.id,
+    validated.name,
+    validated.type,
+    validated.venue,
+    validated.endpoint_url,
+    JSON.stringify(validated.auth),
+    validated.capabilities,
+    JSON.stringify(validated.metadata),
+    validated.disabled,
+    clientId,
+  ];
+
+  const result = await pool.query(query, values);
+  const row = result.rows[0];
+  const service = serviceJson(row);
+  const created = Boolean(row.created);
+
+  await audit(pool, {
+    action: created ? 'service_self_registered' : 'service_self_updated',
+    targetType: 'service',
+    targetId: service.id,
+    details: { clientId, type: service.type, venue: service.venue },
+  }).catch(() => {});
+
+  return { service, created };
+}
+
+/**
+ * Delete service by its owning OIDC client (self-deregistration).
+ * @param {import('pg').Pool} pool
+ * @param {string} id
+ * @param {{ clientId: string }} options
+ */
+export async function deleteClientService(pool, id, { clientId }) {
+  const cleanId = validateServiceId(id);
+  const existingRes = await pool.query(
+    'SELECT id, owner_client_id FROM discovery_services WHERE id = $1',
+    [cleanId],
+  );
+  if (existingRes.rows.length === 0) {
+    return false;
+  }
+  const existing = existingRes.rows[0];
+  if (existing.owner_client_id && existing.owner_client_id !== clientId) {
+    throw new ServiceError(
+      'forbidden',
+      `Service '${cleanId}' is owned by client '${existing.owner_client_id}'`,
+    );
+  }
+
+  const result = await pool.query('DELETE FROM discovery_services WHERE id = $1 RETURNING id', [
+    cleanId,
+  ]);
+  const deleted = result.rowCount > 0;
+  if (deleted) {
+    await audit(pool, {
+      action: 'service_self_deregistered',
+      targetType: 'service',
+      targetId: cleanId,
+      details: { clientId },
+    }).catch(() => {});
+  }
+  return deleted;
+}
+
+/**
+ * Update service heartbeat timestamp (self-liveness check).
+ * @param {import('pg').Pool} pool
+ * @param {string} id
+ * @param {{ clientId?: string }} [options]
+ */
+export async function touchServiceHeartbeat(pool, id, { clientId } = {}) {
+  const cleanId = validateServiceId(id);
+  const existingRes = await pool.query(
+    'SELECT id, owner_client_id FROM discovery_services WHERE id = $1',
+    [cleanId],
+  );
+  if (existingRes.rows.length === 0) {
+    throw new ServiceError('not_found', `Service '${cleanId}' not found`);
+  }
+  const existing = existingRes.rows[0];
+  if (clientId && existing.owner_client_id && existing.owner_client_id !== clientId) {
+    throw new ServiceError(
+      'forbidden',
+      `Service '${cleanId}' is owned by client '${existing.owner_client_id}'`,
+    );
+  }
+
+  const result = await pool.query(
+    `UPDATE discovery_services SET updated_at = now() WHERE id = $1 RETURNING ${SERVICE_COLUMNS}`,
+    [cleanId],
+  );
+  const service = serviceJson(result.rows[0]);
+
+  await audit(pool, {
+    action: 'service_heartbeat',
+    targetType: 'service',
+    targetId: cleanId,
+    details: { clientId },
+  }).catch(() => {});
+
+  return service;
 }
 
 /**

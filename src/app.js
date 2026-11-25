@@ -83,7 +83,7 @@ export async function createApp({ config, pool, mailer }, options = {}) {
   router.use(createHealthRouter({ pool, version: PACKAGE_VERSION }));
   router.use(metrics.router({ pool, token: config.metricsBearerToken }));
   router.use(createPrivacyRouter({ config }));
-  router.use(createDiscoveryRouter({ pool }));
+  router.use(createDiscoveryRouter({ pool, keyEncryptionSecret: config.keyEncryptionSecret }));
   router.use(createInteractionRouter({ config, pool, getProvider: () => holder.current, mailer }));
   router.get('/', (_req, res) => {
     res.redirect(302, `${config.basePath}/account`);

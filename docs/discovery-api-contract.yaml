@@ -139,7 +139,160 @@ paths:
           $ref: '#/components/responses/Error'
 
   # ============================================================================
-  # 2. ADMIN REGISTRY MANAGEMENT (CLI, Admin API & MCP)
+  # 2. OIDC CLIENT SELF-REGISTRATION ENDPOINTS
+  # ============================================================================
+
+  /api/v1/discovery/services/{serviceId}:
+    get:
+      operationId: getDiscoveryServiceById
+      summary: Get details of a single discovered service
+      description: Returns active service information by service ID.
+      security: []
+      parameters:
+        - name: serviceId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Discovered service details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscoveredService'
+        default:
+          $ref: '#/components/responses/Error'
+
+    put:
+      operationId: putClientDiscoveryService
+      summary: Self-register or update a service
+      description: |
+        Allows an authenticated OIDC client to register or update its own service in the parish catalog.
+        The service is bound to `owner_client_id = clientId`. If the service already exists, only its
+        owning client or a master administrator may update it.
+      security:
+        - clientBasicAuth: []
+        - clientHeaderAuth: []
+      parameters:
+        - name: serviceId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientServicePutInput'
+      responses:
+        '200':
+          description: Service updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscoveredService'
+        '201':
+          description: Service self-registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscoveredService'
+        '401':
+          description: Missing or invalid client credentials
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+                example: 'Basic realm="Service Discovery Registration"'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/responses/Error'
+        '403':
+          description: Forbidden (service owned by another client or client disabled)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+
+    delete:
+      operationId: deleteClientDiscoveryService
+      summary: Deregister / delete an owned service
+      description: Deregisters a service previously created by this OIDC client.
+      security:
+        - clientBasicAuth: []
+        - clientHeaderAuth: []
+      parameters:
+        - name: serviceId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Service deregistered successfully
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          description: Forbidden (service owned by another client)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/responses/Error'
+        '404':
+          description: Service not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/discovery/services/{serviceId}/heartbeat:
+    post:
+      operationId: touchClientDiscoveryHeartbeat
+      summary: Service liveness heartbeat
+      description: Updates `updated_at` to now(), signaling that the service is alive and healthy.
+      security:
+        - clientBasicAuth: []
+        - clientHeaderAuth: []
+      parameters:
+        - name: serviceId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Heartbeat acknowledged
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, updated_at]
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+                  updated_at:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ============================================================================
+  # 3. ADMIN REGISTRY MANAGEMENT (CLI, Admin API & MCP)
   # ============================================================================
 
   /admin/api/v1/services:
@@ -306,6 +459,15 @@ components:
       type: http
       scheme: bearer
       description: Opaque Tunnus admin token (`tun_...`)
+    clientBasicAuth:
+      type: http
+      scheme: basic
+      description: OIDC Client credentials (client_id:client_secret)
+    clientHeaderAuth:
+      type: apiKey
+      in: header
+      name: X-Client-Id
+      description: OIDC Client credentials via X-Client-Id and X-Client-Secret headers
 
   responses:
     Error:
@@ -374,6 +536,11 @@ components:
         metadata:
           type: object
           additionalProperties: true
+        owner_client_id:
+          type: string
+          nullable: true
+          description: OIDC client identifier that owns/registered this service
+          example: client-sissi
 
     ServiceAuth:
       type: object
@@ -432,6 +599,11 @@ components:
         metadata:
           type: object
           additionalProperties: true
+        owner_client_id:
+          type: string
+          nullable: true
+          description: OIDC client identifier that owns/registered this service
+          example: client-sissi
         disabled:
           type: boolean
           default: false
@@ -476,6 +648,47 @@ components:
         metadata:
           type: object
           additionalProperties: true
+        owner_client_id:
+          type: string
+          nullable: true
+          description: OIDC client identifier that owns/registered this service
+          example: client-sissi
+        disabled:
+          type: boolean
+          default: false
+
+    ClientServicePutInput:
+      type: object
+      required: [name, type, venue, endpoint_url]
+      additionalProperties: false
+      description: Payload for OIDC client self-registering or updating its service
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: Kyltti / Sissi Infonäytöt
+        type:
+          type: string
+          pattern: '^[a-z0-9_-]{1,32}$'
+          example: signage
+        venue:
+          type: string
+          pattern: '^[a-z0-9_-]{1,32}$'
+          example: parish-wide
+        endpoint_url:
+          type: string
+          format: uri
+          example: https://kehitys.riihimaenseurakunta.fi/sissi
+        auth:
+          $ref: '#/components/schemas/ServiceAuth'
+        capabilities:
+          type: array
+          items: { type: string }
+          example: [screen_push, playlist_management, export_target]
+        metadata:
+          type: object
+          additionalProperties: true
         disabled:
           type: boolean
           default: false
@@ -506,6 +719,11 @@ components:
         metadata:
           type: object
           additionalProperties: true
+        owner_client_id:
+          type: string
+          nullable: true
+          description: OIDC client identifier that owns/registered this service
+          example: client-sissi
         disabled:
           type: boolean
 
