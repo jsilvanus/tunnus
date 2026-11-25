@@ -1,4 +1,4 @@
-import webpush from 'web-push';
+import { sendNotification, setVapidDetails } from 'web-push';
 import { logger } from './logger.js';
 
 /**
@@ -32,7 +32,7 @@ import { logger } from './logger.js';
 export function configureWebPush(config) {
   if (config.vapidPublicKey && config.vapidPrivateKey) {
     const subject = config.vapidSubject || 'mailto:it@riihimaenseurakunta.fi';
-    webpush.setVapidDetails(subject, config.vapidPublicKey, config.vapidPrivateKey);
+    setVapidDetails(subject, config.vapidPublicKey, config.vapidPrivateKey);
   }
 }
 
@@ -93,14 +93,14 @@ export async function getSubscriptionsForUser(pool, userId) {
  * @param {import('pg').Pool} pool
  * @param {PushSubscriptionRecord} sub
  * @param {PushPayload} payload
- * @param {typeof webpush.sendNotification} [sendImpl]
+ * @param {typeof sendNotification} [sendImpl]
  * @returns {Promise<{ ok: boolean, expired?: boolean }>}
  */
 export async function sendPushNotification(
   pool,
   sub,
   payload,
-  sendImpl = webpush.sendNotification
+  sendImpl = sendNotification
 ) {
   const pushSubscription = {
     endpoint: sub.endpoint,
