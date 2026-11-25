@@ -505,13 +505,22 @@ ${commitControls}
         const mcpBadge = app.isMcp
           ? ` <span style="display:inline-block;padding:.1rem .3rem;border-radius:.2rem;font-size:.7rem;font-weight:600;background:#e0f2fe;color:#0369a1">MCP</span>`
           : '';
+        const identityForm = app.isMcp ? (
+          '<form method="post" action="' + esc(p.basePath) + '/account/mcp/identity-mode" style="margin-top:.5rem">' +
+          '<input type="hidden" name="csrf" value="' + esc(p.csrf) + '"><input type="hidden" name="clientId" value="' + esc(app.clientId) + '">' +
+          '<label style="font-size:.8rem">MCP identity mode<select name="mode">' +
+          '<option value="open" ' + ((app.identityMode || 'open') === 'open' ? 'selected' : '') + '>Open</option>' +
+          '<option value="pseudo_ref" ' + (app.identityMode === 'pseudo_ref' ? 'selected' : '') + '>Pseudonym + refs</option>' +
+          '<option value="ref_only" ' + (app.identityMode === 'ref_only' ? 'selected' : '') + '>Refs only</option>' +
+          '</select></label><button class="alt" style="padding:.25rem .5rem;font-size:.8rem">Save</button></form>'
+        ) : '';
         const resourcesStr =
           app.resources && app.resources.length > 0
             ? `<br><small style="color:#555"><em>${esc(t(locale, 'account_apps_resources'))}:</em> ${esc(app.resources.join(', '))}</small>`
             : '';
         return `<tr>
 <td><strong>${esc(app.clientName)}</strong>${mcpBadge}${idSubtitle}</td>
-<td><small style="color:#555">${scopesStr}</small>${resourcesStr}</td>
+<td><small style="color:#555">${scopesStr}</small>${resourcesStr}${identityForm}</td>
 <td style="text-align:right">
 <form method="post" action="${esc(p.basePath)}/account/apps/revoke" style="display:inline">
 <input type="hidden" name="csrf" value="${esc(p.csrf)}">
@@ -543,6 +552,7 @@ ${rows}
 <h3 style="margin-top:0">${esc(t(locale, 'account_apps_title'))}</h3>
 ${appNoticeBanner}
 ${appsContent}
+<p><a href="${esc(p.basePath)}/account/mcp-identities">Manage MCP pseudonyms and temporary references</a></p>
 </div>`;
 
   const statusBadge =
@@ -620,4 +630,83 @@ export function accountTotpSetupPage(ctx, p) {
 ${errorLine(p.error ?? '', ctx)}<button>${esc(t(locale, 'continue'))}</button></form>
 <p><a href="${esc(p.cancelHref)}">${esc(t(locale, 'account_cancel'))}</a></p>`,
   );
+}
+
+/**
+ * Owner-facing MCP identity directory and temporary reference management.
+ * @param {Ctx} ctx
+ * @param {{ basePath: string, csrf: string, subjects: any[], users: any[], clients: any[], notice?: string, error?: string }} p
+ */
+export function mcpIdentityPage(ctx, p) {
+  const userOptions = p.users.map((u) =>
+    `<option value="${esc(u.id)}">${esc(u.display_name || u.email)} · ${esc(u.email)}</option>`,
+  ).join('');
+  const subjectOptions = p.subjects.map((s) =>
+    `<option value="${esc(s.subject_id)}">${esc(s.display_name || s.label || s.email || s.subject_id)}</option>`,
+  ).join('');
+  const clientSettings = p.clients.map((c) =>
+    '<form method="post" action="' + esc(p.basePath) + '/account/mcp/identity-mode" style="margin:.5rem 0;padding:.5rem;border:1px solid #ddd">' +
+    '<input type="hidden" name="csrf" value="' + esc(p.csrf) + '">' +
+    '<input type="hidden" name="authKind" value="' + esc(c.auth_kind) + '">' +
+    '<input type="hidden" name="authClientKey" value="' + esc(c.auth_client_key) + '">' +
+    '<strong>' + esc(c.label) + '</strong><br><select name="mode">' +
+    '<option value="open" ' + ((c.identity_mode || 'open') === 'open' ? 'selected' : '') + '>Open</option>' +
+    '<option value="pseudo_ref" ' + (c.identity_mode === 'pseudo_ref' ? 'selected' : '') + '>Pseudonym + refs</option>' +
+    '<option value="ref_only" ' + (c.identity_mode === 'ref_only' ? 'selected' : '') + '>Refs only</option>' +
+    '</select> <button class="alt">Save mode</button></form>'
+  ).join('');
+  const clientOptions = p.clients.map((c) =>
+    `<option value="${esc(c.auth_kind)}|${esc(c.auth_client_key)}">${esc(c.label)}</option>`,
+  ).join('');
+
+  const subjectCards = p.subjects.map((s) => {
+    const label = s.display_name || s.label || s.email || s.subject_id;
+    const aliases = (s.pseudonyms || []).map((a) => `<li><code>pseudo:${esc(a.pseudonym)}</code> ${a.is_preferred ? '<strong>(preferred)</strong>' : ''}
+<form method="post" action="${esc(p.basePath)}/account/mcp-identities/pseudonyms/delete" style="display:inline">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}"><input type="hidden" name="pseudonymId" value="${esc(a.id)}">
+<button class="secondary">Delete</button></form></li>`).join('');
+    const refs = (s.refs || []).map((r) => {
+      const expired = r.revoked_at || new Date(r.expires_at).getTime() <= Date.now();
+      const scope = `${r.auth_kind}: ${r.auth_client_key}`;
+      return `<tr><td><code>ref:${esc(r.handle)}</code><br><small>${esc(scope)}</small></td>
+<td>${esc(new Date(r.expires_at).toLocaleString(ctx.locale))}${r.revoked_at ? ' · revoked' : expired ? ' · expired' : ''}</td>
+<td>${expired ? '' : `<form method="post" action="${esc(p.basePath)}/account/mcp-identities/refs/extend"><input type="hidden" name="csrf" value="${esc(p.csrf)}"><input type="hidden" name="refId" value="${esc(r.id)}"><button class="alt">Extend 24 h</button></form>
+<form method="post" action="${esc(p.basePath)}/account/mcp-identities/refs/revoke"><input type="hidden" name="csrf" value="${esc(p.csrf)}"><input type="hidden" name="refId" value="${esc(r.id)}"><button class="secondary">Revoke</button></form>`}</td></tr>`;
+    }).join('');
+    const linked = s.tunnus_user_id ? `<small>Linked Tunnus user: ${esc(s.email || s.tunnus_user_id)}</small>` : '<small>External identity (not linked)</small>';
+    const linkForm = !s.tunnus_user_id ? `<form method="post" action="${esc(p.basePath)}/account/mcp-identities/link">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}"><input type="hidden" name="subjectId" value="${esc(s.subject_id)}">
+<label>Link to Tunnus user<select name="userId" required><option value="">Select user</option>${userOptions}</select></label><button class="alt">Link</button></form>` : '';
+    return `<section style="border:1px solid #ccc;border-radius:.4rem;padding:1rem;margin:1rem 0">
+<h3>${esc(label)}</h3>${linked}
+<h4>Pseudonyms</h4><ul>${aliases || '<li>None</li>'}</ul>
+<form method="post" action="${esc(p.basePath)}/account/mcp-identities/pseudonyms">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}"><input type="hidden" name="subjectId" value="${esc(s.subject_id)}">
+<label>New pseudonym<input name="pseudonym" maxlength="100" required></label>
+<label><input type="checkbox" name="preferred" value="true"> Preferred output pseudonym</label><button>Add pseudonym</button></form>
+${linkForm}
+<h4>Temporary references</h4><table><thead><tr><th>Reference / client</th><th>Expires</th><th></th></tr></thead><tbody>${refs || '<tr><td colspan="3">No references</td></tr>'}</tbody></table>
+</section>`;
+  }).join('');
+
+  const notice = p.notice ? `<p style="color:#155724">${esc(p.notice)}</p>` : '';
+  const error = p.error ? `<p class="err">${esc(p.error)}</p>` : '';
+  return layout(ctx, 'MCP pseudonyms and references', `<p><a href="${esc(p.basePath)}/account">← Account</a></p>
+<h2>MCP pseudonyms and references</h2>
+<p>Pseudonyms and temporary references are private to this account. References are scoped to one MCP credential and expire after 24 hours unless extended.</p>
+${notice}${error}
+<section><h3>Add identity subject</h3>
+<form method="post" action="${esc(p.basePath)}/account/mcp-identities/subjects">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<label>Existing Tunnus user (optional)<select name="userId"><option value="">External / not linked</option>${userOptions}</select></label>
+<label>Label for external identity<input name="label" maxlength="200"></label><button>Create subject</button></form></section>
+<section><h3>MCP client identity modes</h3>${clientSettings || '<p>No active MCP credentials found.</p>'}</section>
+<section><h3>Create temporary reference</h3>
+<form method="post" action="${esc(p.basePath)}/account/mcp-identities/refs">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<label>Existing identity subject (pseudonym or external identity)<select name="subjectId"><option value="">Select subject</option>${subjectOptions}</select></label>
+<label>Or select Tunnus user<select name="userId"><option value="">Select user</option>${userOptions}</select></label>
+<label>MCP credential<select name="credential" required><option value="">Select client</option>${clientOptions}</select></label>
+<button>Create new reference (24 h)</button></form></section>
+${subjectCards || '<p>No identity subjects yet.</p>'}`);
 }

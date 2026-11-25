@@ -158,6 +158,7 @@ export async function createApp({ config, pool, mailer }, options = {}) {
         spec,
         url: config.issuer,
         fetch: localFetch,
+        identityPool: pool,
         stateStore: mcpDbStore,
         issuer: config.issuer,
         accountUrl: `${config.issuer}/account`,

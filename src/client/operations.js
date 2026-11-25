@@ -6,6 +6,7 @@ import { listOperations } from '../admin/spec.js';
  *   required: boolean,
  *   schema: any,
  *   description?: string,
+ *   sensitiveUserSearch?: boolean,
  * }} ParamDef
  */
 
@@ -27,6 +28,8 @@ import { listOperations } from '../admin/spec.js';
  *   bodyRequired: boolean,
  *   responseSchema: any | null,
  *   paged: boolean,
+ *   userRecord?: boolean,
+ *   membershipRecord?: boolean,
  * }} ClientOperation
  */
 
@@ -109,6 +112,7 @@ export function clientOperations(spec) {
         required: p.in === 'path' ? true : Boolean(p.required),
         schema: inlineRefs(spec, p.schema ?? { type: 'string' }),
         description: p.description,
+        sensitiveUserSearch: p['x-tunnus-sensitive-user-search'] === true,
       };
       if (p.in === 'path') pathParams.push(def);
       else queryParams.push(def);
@@ -117,9 +121,10 @@ export function clientOperations(spec) {
     pathParams.sort((a, b) => op.path.indexOf(`{${a.name}}`) - op.path.indexOf(`{${b.name}}`));
 
     const successKey = ['200', '201'].find((k) => op.responses[k]);
-    const responseSchema = successKey
+    const rawResponseSchema = successKey
       ? op.responses[successKey].content?.['application/json']?.schema
       : undefined;
+    const responseSchema = rawResponseSchema ? inlineRefs(spec, rawResponseSchema) : null;
 
     const destructive = raw['x-tunnus-destructive'] === true;
     out.push({
@@ -136,8 +141,10 @@ export function clientOperations(spec) {
       queryParams,
       bodySchema: op.requestBodySchema ? inlineRefs(spec, op.requestBodySchema) : null,
       bodyRequired: op.requestBodyRequired,
-      responseSchema: responseSchema ? inlineRefs(spec, responseSchema) : null,
+      responseSchema,
       paged: queryParams.some((q) => q.name === 'cursor'),
+      userRecord: responseSchema?.['x-tunnus-user-record'] === true,
+      membershipRecord: responseSchema?.['x-tunnus-membership-record'] === true,
     });
   }
   return out;

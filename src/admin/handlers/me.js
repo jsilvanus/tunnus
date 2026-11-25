@@ -89,17 +89,25 @@ export const handlers = {
    */
   async revokeAdminToken(ctx) {
     const tokenId = String(ctx.params.tokenId);
+    const { rows: tokens } = await ctx.pool.query(
+      'SELECT user_id FROM admin_tokens WHERE id = $1',
+      [tokenId],
+    );
+    if (!tokens[0]) throw new AdminError(404, 'not_found', 'Token not found');
     const { rowCount } = await ctx.pool.query(
       'UPDATE admin_tokens SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL',
       [tokenId],
     );
-    if (!rowCount) {
-      const { rowCount: exists } = await ctx.pool.query(
-        'SELECT 1 FROM admin_tokens WHERE id = $1',
-        [tokenId],
-      );
-      if (!exists) throw new AdminError(404, 'not_found', 'Token not found');
-    }
+    await ctx.pool.query(
+      `DELETE FROM mcp_identity_refs
+        WHERE owner_user_id = $1 AND auth_kind = 'admin_token' AND auth_client_key = $2`,
+      [tokens[0].user_id, tokenId],
+    );
+    await ctx.pool.query(
+      `DELETE FROM mcp_client_settings
+        WHERE owner_user_id = $1 AND auth_kind = 'admin_token' AND auth_client_key = $2`,
+      [tokens[0].user_id, tokenId],
+    );
     return {
       status: 204,
       audit: { targetType: 'admin_token', targetId: tokenId, details: { revoked: rowCount === 1 } },
