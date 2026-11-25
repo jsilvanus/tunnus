@@ -242,6 +242,12 @@ export function loadConfig(env = process.env, io = {}) {
     brevoApiKey: env.BREVO_API_KEY ?? '',
     brevoTemplates: loadBrevoTemplates(env, env.MAIL_PROVIDER ?? 'console'),
     mailRelayToken: env.MAIL_RELAY_TOKEN ?? '',
+    pushRelayToken: env.PUSH_RELAY_TOKEN ?? env.MAIL_RELAY_TOKEN ?? '',
+    vapid: {
+      publicKey: env.VAPID_PUBLIC_KEY ?? '',
+      privateKey: env.VAPID_PRIVATE_KEY ?? '',
+      subject: env.VAPID_SUBJECT ?? 'mailto:it@riihimaenseurakunta.fi',
+    },
     limits: {
       perEmailPerHour: int(env, 'RATE_LIMIT_EMAIL_PER_HOUR', 5),
       perIpPerHour: int(env, 'RATE_LIMIT_IP_PER_HOUR', 20),

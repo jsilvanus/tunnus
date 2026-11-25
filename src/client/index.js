@@ -15,3 +15,12 @@ export {
   resolveClientConfig,
   defaultConfigPath,
 } from './config.js';
+
+export {
+  isPushSupported,
+  registerPushServiceWorker,
+  subscribeToPush,
+  unsubscribeFromPush,
+  serializePushSubscription,
+  urlBase64ToUint8Array,
+} from './push.js';

@@ -15,6 +15,9 @@ import { createHealthRouter, PACKAGE_VERSION } from './health.js';
 import { createPrivacyRouter } from './web/privacy.js';
 import { createDiscoveryRouter } from './web/discovery.js';
 import { createMailRelayRouter } from './web/mailRelay.js';
+import { createPushRouter } from './web/pushRelay.js';
+import { createWebhookRouter } from './web/webhookRouter.js';
+import { configureWebPush } from './push.js';
 import { createMetrics } from './metrics.js';
 import { setAuditMetrics } from './audit.js';
 import { logger } from './logger.js';
@@ -141,6 +144,29 @@ export async function createApp({ config, pool, mailer }, options = {}) {
     }),
   );
   router.use(createMailRelayRouter({ pool, token: config.mailRelayToken, mailer }));
+
+  if (config.vapid?.publicKey && config.vapid?.privateKey) {
+    configureWebPush({
+      vapidPublicKey: config.vapid.publicKey,
+      vapidPrivateKey: config.vapid.privateKey,
+      vapidSubject: config.vapid.subject,
+    });
+  }
+
+  router.use(
+    createPushRouter({
+      pool,
+      token: config.pushRelayToken,
+      vapidPublicKey: config.vapid?.publicKey || '',
+    })
+  );
+
+  router.use(
+    createWebhookRouter({
+      pool,
+      token: config.mailRelayToken || config.pushRelayToken,
+    })
+  );
 
   if (config.mcp?.enabled && verifyOAuthToken) {
     const mcpDbStore = {
