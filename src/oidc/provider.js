@@ -13,13 +13,22 @@ import {
 
 export { EXTRA_CLIENT_METADATA_PROPERTIES };
 
+/**
+ * @param {any} client
+ * @param {Record<string, any>[]} clients
+ * @returns {string[]}
+ */
 function clientAllowedResourcesOf(client, clients) {
   const id = client?.clientId || client?.client_id;
-  const rawClient = id ? clients?.find((cl) => cl.client_id === id) : undefined;
+  const rawClient = id ? clients?.find((/** @type {any} */ cl) => cl.client_id === id) : undefined;
   const list = client?.allowed_resources || rawClient?.allowed_resources;
   return Array.isArray(list) ? list.filter((r) => typeof r === 'string' && r.length > 0) : [];
 }
 
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
 function isAbsoluteResourceUri(value) {
   return typeof value === 'string' && Boolean(URL.parse(value)?.href) && !value.includes('#');
 }
@@ -237,10 +246,13 @@ export function createProvider({ config, pool, clients, jwks }) {
           if (!explicitResource && allowed.length > 0) {
             structuredToken.payload.aud = allowed.length === 1 ? allowed[0] : [...allowed];
           }
-          if (token.accountId) {
+          const accountId = 'accountId' in token ? token.accountId : undefined;
+          if (accountId) {
             const account =
-              ctx?.oidc?.entities?.Account || (await findAccount(ctx, token.accountId));
-            const claims = account ? await account.claims('access_token', token.scope) : null;
+              ctx?.oidc?.entities?.Account || (await findAccount(ctx, String(accountId)));
+            const claims = account
+              ? await account.claims('access_token', token.scope ?? '', {}, [])
+              : null;
             if (claims) {
               const scopeSet = new Set(
                 String(token.scope ?? '')
