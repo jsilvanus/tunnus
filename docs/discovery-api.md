@@ -106,6 +106,48 @@ Content-Type: application/json
 }
 ```
 
+#### Using the Node.js Discovery Client Module (`src/client/discovery.js`)
+
+A zero-dependency client helper is provided in Tunnus (`src/client/discovery.js`) that handles registration, exponential-backoff retries if Tunnus restarts, periodic heartbeats, and graceful teardown (`SIGTERM`/`SIGINT`) automatically:
+
+```javascript
+import { startServiceDiscovery } from './client/discovery.js';
+
+// In your application startup:
+const discovery = await startServiceDiscovery({
+  tunnusUrl: process.env.TUNNUS_URL || 'https://tunnus.riihimaenseurakunta.fi',
+  clientId: process.env.OIDC_CLIENT_ID,
+  clientSecret: process.env.OIDC_CLIENT_SECRET,
+  service: {
+    id: 'sissi-signage',
+    name: 'Kyltti / Sissi Infonäytöt',
+    type: 'signage',
+    venue: 'parish-wide',
+    endpoint_url: process.env.PUBLIC_URL || 'https://kehitys.riihimaenseurakunta.fi/sissi',
+    auth: {
+      type: 'oidc',
+      client_id: process.env.OIDC_CLIENT_ID,
+    },
+    capabilities: ['screen_push', 'playlist_management', 'export_target'],
+    metadata: {
+      default_view: 'parish_bulletin',
+    },
+  },
+  heartbeatIntervalSec: 60,       // default 60s
+  autoDeregisterOnShutdown: true, // cleans up registration on SIGTERM / SIGINT
+});
+```
+
+To query available services or publishing targets across the parish:
+```javascript
+import { fetchDiscoveryCatalog } from './client/discovery.js';
+
+const catalog = await fetchDiscoveryCatalog({
+  tunnusUrl: 'https://tunnus.riihimaenseurakunta.fi',
+  capability: 'export_target',
+});
+```
+
 ---
 
 ### C. Admin Management API (`<issuer>/admin/api/v1`)
