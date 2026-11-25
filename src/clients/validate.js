@@ -187,7 +187,10 @@ export function validateMetadata(metadata, { allowNullClear = false } = {}) {
 
     if (key === 'allowed_resources') {
       if (!Array.isArray(value)) {
-        details.push({ path: '/allowed_resources', message: 'must be an array of URLs or resource identifiers' });
+        details.push({
+          path: '/allowed_resources',
+          message: 'must be an array of URLs or resource identifiers',
+        });
         continue;
       }
       const bad = [];
@@ -197,7 +200,8 @@ export function validateMetadata(metadata, { allowNullClear = false } = {}) {
         if (!ok) {
           bad.push({
             path: `/allowed_resources/${i}`,
-            message: 'must be an https URL (http allowed only for localhost or 127.0.0.1) or a resource identifier',
+            message:
+              'must be an https URL (http allowed only for localhost or 127.0.0.1) or a resource identifier',
           });
         }
       }

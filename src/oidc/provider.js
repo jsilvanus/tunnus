@@ -242,7 +242,11 @@ export function createProvider({ config, pool, clients, jwks }) {
               ctx?.oidc?.entities?.Account || (await findAccount(ctx, token.accountId));
             const claims = account ? await account.claims('access_token', token.scope) : null;
             if (claims) {
-              const scopeSet = new Set(String(token.scope ?? '').split(' ').filter(Boolean));
+              const scopeSet = new Set(
+                String(token.scope ?? '')
+                  .split(' ')
+                  .filter(Boolean),
+              );
               if (
                 (scopeSet.has('groups') || alwaysGroups.has(token.clientId)) &&
                 Array.isArray(claims.groups)
