@@ -49,7 +49,7 @@ paths:
         - name: capability
           in: query
           required: false
-          description: Filter by required capability (e.g. `slides`, `camera_control`)
+          description: Filter by required capability (e.g. `slides`, `export_target`, `camera_control`)
           schema:
             type: string
       responses:
@@ -60,32 +60,52 @@ paths:
               schema:
                 $ref: '#/components/schemas/DiscoveryResponse'
               example:
-                updated_at: '2026-11-25T15:00:00Z'
+                updated_at: '2026-11-25T17:45:00Z'
                 services:
                   - id: keskuskirkko-piprogram
                     name: Keskuskirkko — Sali (Pi Program)
                     type: piprogram
                     venue: keskuskirkko
-                    url: https://gateway.keskuskirkko.riihimaenseurakunta.fi:8443/program
+                    endpoint_url: https://kehitys.riihimaenseurakunta.fi/canva
+                    url: https://kehitys.riihimaenseurakunta.fi/canva
                     auth:
                       type: api_key
                       header_name: X-API-Key
-                    capabilities: [slides, stage_display, ftb, shutter]
+                    capabilities: [slides, stage_display, export_target]
                     metadata:
                       pipeline: primary
-                      display_targets: [projector_left, projector_right, side_screen]
+                      export_targets:
+                        - id: sali-valkokangas-16-9
+                          name: Pääsalin valkokangas (16:9)
+                          category: slides
+                          aspect_ratio: "16:9"
+                          resolution: { width: 1920, height: 1080 }
+                          formats: [png, jpeg]
+                          multi_page: true
+                          ingest:
+                            path: /api/v1/pipgm/items
                   - id: sissi-signage
                     name: Kyltti / Sissi Infonäytöt
                     type: signage
                     venue: parish-wide
+                    endpoint_url: https://kehitys.riihimaenseurakunta.fi/sissi
                     url: https://kehitys.riihimaenseurakunta.fi/sissi
                     auth:
                       type: oidc
                       client_id: canva-sissi-publisher
                       scopes: [signage:write]
-                    capabilities: [screen_push, playlist_management]
+                    capabilities: [screen_push, playlist_management, export_target]
                     metadata:
-                      default_view: parish_bulletin
+                      export_targets:
+                        - id: keskuskirkko-aula-portrait
+                          name: Keskuskirkon eteisaula (Pysty 9:16)
+                          category: signage
+                          aspect_ratio: "9:16"
+                          resolution: { width: 1080, height: 1920 }
+                          formats: [png, jpeg, mp4]
+                          multi_page: false
+                          ingest:
+                            path: /api/screens/keskuskirkko-aula/content
         default:
           $ref: '#/components/responses/Error'
 
@@ -321,7 +341,7 @@ components:
 
     DiscoveredService:
       type: object
-      required: [id, name, type, venue, url]
+      required: [id, name, type, venue, endpoint_url]
       additionalProperties: false
       properties:
         id:
@@ -336,33 +356,24 @@ components:
         venue:
           type: string
           example: keskuskirkko
+        endpoint_url:
+          type: string
+          format: uri
+          example: https://kehitys.riihimaenseurakunta.fi/canva
         url:
           type: string
           format: uri
-          example: https://gateway.keskuskirkko.riihimaenseurakunta.fi:8443/program
+          description: Alias to endpoint_url for client convenience
+          example: https://kehitys.riihimaenseurakunta.fi/canva
         auth:
           $ref: '#/components/schemas/ServiceAuth'
         capabilities:
           type: array
           items: { type: string }
-          example: [slides, stage_display, ftb, shutter]
+          example: [slides, stage_display, export_target]
         metadata:
           type: object
           additionalProperties: true
-          example:
-            pipeline: primary
-            export_targets:
-              - id: sali-valkokangas-16-9
-                name: Pääsalin valkokangas (16:9)
-                category: slides
-                aspect_ratio: "16:9"
-                resolution:
-                  width: 1920
-                  height: 1080
-                formats: [png, jpeg]
-                multi_page: true
-                ingest:
-                  path: /api/v1/pipgm/items
 
     ServiceAuth:
       type: object
@@ -391,7 +402,7 @@ components:
 
     Service:
       type: object
-      required: [id, name, type, venue, url, disabled, created_at, updated_at]
+      required: [id, name, type, venue, endpoint_url, disabled, created_at, updated_at]
       additionalProperties: false
       properties:
         id:
@@ -406,9 +417,13 @@ components:
         venue:
           type: string
           example: keskuskirkko
+        endpoint_url:
+          type: string
+          format: uri
         url:
           type: string
           format: uri
+          description: Alias to endpoint_url
         auth:
           $ref: '#/components/schemas/ServiceAuth'
         capabilities:
@@ -429,7 +444,7 @@ components:
 
     ServiceCreateInput:
       type: object
-      required: [id, name, type, venue, url]
+      required: [id, name, type, venue, endpoint_url]
       additionalProperties: false
       properties:
         id:
@@ -449,10 +464,10 @@ components:
           type: string
           pattern: '^[a-z0-9_-]{1,32}$'
           example: keskuskirkko
-        url:
+        endpoint_url:
           type: string
           format: uri
-          example: https://gateway.keskuskirkko.riihimaenseurakunta.fi:8443/program
+          example: https://kehitys.riihimaenseurakunta.fi/canva
         auth:
           $ref: '#/components/schemas/ServiceAuth'
         capabilities:
@@ -480,7 +495,7 @@ components:
         venue:
           type: string
           pattern: '^[a-z0-9_-]{1,32}$'
-        url:
+        endpoint_url:
           type: string
           format: uri
         auth:
