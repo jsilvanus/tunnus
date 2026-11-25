@@ -77,6 +77,7 @@ export function tokenJson(row) {
     expires_at: iso(row.expires_at),
     last_used_at: iso(row.last_used_at),
     revoked_at: iso(row.revoked_at),
+    identity_mode: row.identity_mode ?? 'open',
   };
 }
 

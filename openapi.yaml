@@ -1027,6 +1027,8 @@ components:
         - type: string
           format: uuid
         - $ref: '#/components/schemas/Email'
+        - type: string
+          pattern: '^(pseudo:[a-zA-Z0-9_-]+|ref:[a-zA-Z0-9_-]+)$'
 
     GroupRef:
       description: Group numeric ID or unique group name
@@ -1228,7 +1230,7 @@ components:
 
     AdminToken:
       type: object
-      required: [id, user_id, label, created_at, created_by, expires_at, last_used_at, revoked_at]
+      required: [id, user_id, label, created_at, created_by, expires_at, last_used_at, revoked_at, identity_mode]
       additionalProperties: false
       properties:
         id: { type: string, format: uuid }
@@ -1237,6 +1239,10 @@ components:
           format: uuid
           x-tunnus-user-id: true
         label: { type: string }
+        identity_mode:
+          type: string
+          enum: [open, pseudo_ref, ref_only]
+          default: open
         created_at: { $ref: '#/components/schemas/Timestamp' }
         created_by:
           type: [string, 'null']
@@ -1255,17 +1261,25 @@ components:
         label: { type: string, minLength: 1, maxLength: 100 }
         expires_in_days: { type: integer, minimum: 1, maximum: 365, default: 90 }
         user_id: { type: string, format: uuid }
+        identity_mode:
+          type: string
+          enum: [open, pseudo_ref, ref_only]
+          default: open
 
     AdminTokenCreated:
       type: object
       description: An AdminToken plus the token value, which is shown only in this response
       required:
-        [id, user_id, label, created_at, created_by, expires_at, last_used_at, revoked_at, token]
+        [id, user_id, label, created_at, created_by, expires_at, last_used_at, revoked_at, identity_mode, token]
       additionalProperties: false
       properties:
         id: { type: string, format: uuid }
         user_id: { type: string, format: uuid }
         label: { type: string }
+        identity_mode:
+          type: string
+          enum: [open, pseudo_ref, ref_only]
+          default: open
         created_at: { $ref: '#/components/schemas/Timestamp' }
         created_by: { type: [string, 'null'], format: uuid }
         expires_at: { $ref: '#/components/schemas/Timestamp' }

@@ -17,6 +17,7 @@ import {
   stageAction,
 } from '../client/mcpState.js';
 import { clientOperations } from '../client/operations.js';
+import { mapIdentitySchema, mapOperationInput, projectOperationOutput } from './identity.js';
 
 /** @typedef {import('../client/operations.js').ClientOperation} ClientOperation */
 
@@ -188,70 +189,6 @@ export function mcpTools(spec, mode = 'open') {
 /** @param {string} text */
 function errorResult(text) {
   return { isError: true, content: [{ type: 'text', text }] };
-}
-
-async function mapIdentitySchema(value, schema, convert, direction) {
-  if (value === null || value === undefined || !schema) return value;
-  if (direction === 'input' && schema['x-tunnus-user-reference'] === true) {
-    if (typeof value !== 'string') throw new Error('Invalid user reference');
-    return convert(value);
-  }
-  if (direction === 'output' && (schema['x-tunnus-user-id'] === true || schema['x-tunnus-user-reference'] === true)) {
-    if (typeof value !== 'string' || !value) return value;
-    return convert(value);
-  }
-  if (Array.isArray(value)) return Promise.all(value.map((item) => mapIdentitySchema(item, schema.items, convert, direction)));
-  if (typeof value !== 'object') return value;
-  const out = { ...value };
-  if (direction === 'output' && schema['x-tunnus-user-record'] === true) {
-    if (typeof out.id === 'string') out.id = await convert(out.id);
-    for (const key of ['email', 'display_name', 'title', 'phone_number']) delete out[key];
-  }
-  if (direction === 'output' && schema['x-tunnus-membership-record'] === true) {
-    delete out.email;
-    delete out.display_name;
-  }
-  for (const [key, childSchema] of Object.entries(schema.properties ?? {})) {
-    if (!Object.hasOwn(out, key)) continue;
-    if (direction === 'output' && childSchema?.['x-tunnus-omit-in-restricted'] === true) { delete out[key]; continue; }
-    const condition = childSchema?.['x-tunnus-user-id-when'];
-    const effective = condition ? { ...childSchema, 'x-tunnus-user-id': direction === 'output' && out[condition.field] === condition.equals } : childSchema;
-    out[key] = await mapIdentitySchema(out[key], effective, convert, direction);
-  }
-  return out;
-}
-
-async function mapOperationInput(op, params, body, resolve) {
-  const mapped = { ...params };
-  for (const p of [...op.pathParams, ...op.queryParams]) {
-    if (Object.hasOwn(mapped, p.name)) mapped[p.name] = await mapIdentitySchema(mapped[p.name], p.schema, resolve, 'input');
-  }
-  return { params: mapped, body: op.bodySchema ? await mapIdentitySchema(body, op.bodySchema, resolve, 'input') : body };
-}
-
-function assertIdentityAnnotations(schema, path = '') {
-  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return;
-  const record = schema['x-tunnus-user-record'] === true || schema['x-tunnus-membership-record'] === true;
-  for (const [key, child] of Object.entries(schema.properties ?? {})) {
-    const childPath = path ? path + '.' + key : key;
-    if (['email', 'display_name', 'phone_number', 'title'].includes(key) && !record && child?.['x-tunnus-omit-in-restricted'] !== true) {
-      throw new Error('Unannotated identity-bearing response field: ' + childPath);
-    }
-    if (['user_id', 'actor_user_id', 'created_by'].includes(key) && child?.['x-tunnus-user-id'] !== true && !child?.['x-tunnus-user-id-when']) {
-      throw new Error('Unannotated user identifier response field: ' + childPath);
-    }
-    assertIdentityAnnotations(child, childPath);
-  }
-  if (schema.items) assertIdentityAnnotations(schema.items, path + '[]');
-  for (const key of ['oneOf', 'anyOf', 'allOf']) {
-    for (const child of schema[key] ?? []) assertIdentityAnnotations(child, path);
-  }
-}
-
-async function projectOperationOutput(op, body, represent) {
-  if (!op?.responseSchema || op.operationId === 'getMe') return body;
-  assertIdentityAnnotations(op.responseSchema);
-  return mapIdentitySchema(body, op.responseSchema, represent, 'output');
 }
 
 /**

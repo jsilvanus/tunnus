@@ -1,13 +1,16 @@
 import { createAdminToken } from '../../adminTokens.js';
+import { setMcpIdentityMode } from '../../mcp/identity.js';
 import { AdminError } from '../errors.js';
 import { tokenJson, userJson, USER_GROUP_BY, USER_SELECT } from '../serialize.js';
 
 /** @typedef {import('../types.js').HandlerContext} HandlerContext */
 /** @typedef {import('../types.js').HandlerResult} HandlerResult */
 
-const TOKEN_COLUMNS = `SELECT id, user_id, label, created_at, created_by, expires_at,
-       last_used_at, revoked_at
-  FROM admin_tokens`;
+const TOKEN_COLUMNS = `SELECT t.id, t.user_id, t.label, t.created_at, t.created_by, t.expires_at,
+       t.last_used_at, t.revoked_at, coalesce(s.identity_mode, 'open') AS identity_mode
+  FROM admin_tokens t
+  LEFT JOIN mcp_client_settings s
+    ON s.owner_user_id = t.user_id AND s.auth_kind = 'admin_token' AND s.auth_client_key = t.id::text`;
 
 export const handlers = {
   /**
@@ -23,7 +26,7 @@ export const handlers = {
     if (ctx.actor.tokenId === null) {
       return { body: { user: userJson(users[0]) } };
     }
-    const { rows: tokens } = await ctx.pool.query(`${TOKEN_COLUMNS} WHERE id = $1`, [
+    const { rows: tokens } = await ctx.pool.query(`${TOKEN_COLUMNS} WHERE t.id = $1`, [
       ctx.actor.tokenId,
     ]);
     if (!tokens[0]) throw new AdminError(401, 'unauthorized', 'Missing or invalid admin token');
@@ -40,9 +43,9 @@ export const handlers = {
     const includeInactive = ctx.query.include_inactive ?? false;
     const { rows } = await ctx.pool.query(
       `${TOKEN_COLUMNS}
-        WHERE ($1::uuid IS NULL OR user_id = $1::uuid)
-          AND ($2::boolean OR (revoked_at IS NULL AND expires_at > now()))
-        ORDER BY created_at DESC, id DESC`,
+        WHERE ($1::uuid IS NULL OR t.user_id = $1::uuid)
+          AND ($2::boolean OR (t.revoked_at IS NULL AND t.expires_at > now()))
+        ORDER BY t.created_at DESC, t.id DESC`,
       [userId, includeInactive],
     );
     return { body: { items: rows.map((row) => tokenJson(row)) } };
@@ -54,7 +57,12 @@ export const handlers = {
    * @returns {Promise<HandlerResult>}
    */
   async createAdminToken(ctx) {
-    const { label, expires_in_days: expiresInDays, user_id: requestedUser } = ctx.body;
+    const {
+      label,
+      expires_in_days: expiresInDays,
+      user_id: requestedUser,
+      identity_mode: identityMode,
+    } = ctx.body;
     const userId = requestedUser ?? ctx.actor.userId;
     const { rows } = await ctx.pool.query('SELECT id, status, is_admin FROM users WHERE id = $1', [
       userId,
@@ -71,13 +79,21 @@ export const handlers = {
       expiresInDays,
       createdBy: ctx.actor.userId,
     });
+    if (identityMode && identityMode !== 'open') {
+      await setMcpIdentityMode(
+        ctx.pool,
+        { ownerUserId: userId, authKind: 'admin_token', authClientKey: created.row.id },
+        identityMode,
+      );
+    }
+    created.row.identity_mode = identityMode ?? 'open';
     return {
       status: 201,
       body: { ...tokenJson(created.row), token: created.token },
       audit: {
         targetType: 'admin_token',
         targetId: created.row.id,
-        details: { user_id: userId, expires_in_days: expiresInDays },
+        details: { user_id: userId, expires_in_days: expiresInDays, identity_mode: identityMode ?? 'open' },
       },
     };
   },

@@ -1,10 +1,18 @@
 import express from 'express';
 import { audit } from '../audit.js';
 import { errorFields, logger } from '../logger.js';
+import {
+  getMcpIdentitySettings,
+  resolveMcpUserReference,
+  representMcpUser,
+  mapOperationInput,
+  projectOperationOutput,
+} from '../mcp/identity.js';
 
 import { createAdminAuth } from './auth.js';
 import { AdminError, errorBody, sendError } from './errors.js';
 import { listOperations, loadSpec, readSpecText } from './spec.js';
+import { clientOperations } from '../client/operations.js';
 import { createSpecValidators } from './validate.js';
 import { handlers as allHandlers } from './handlers/index.js';
 
@@ -37,6 +45,7 @@ export function createAdminRouter({
   const specText = readSpecText();
   const spec = loadSpec(specText);
   const operations = listOperations(spec);
+  const clientOpMap = new Map(clientOperations(spec).map((cop) => [cop.operationId, cop]));
   const handlers = /** @type {Record<string, (ctx: any) => Promise<any>>} */ (allHandlers);
 
   const declared = new Set(operations.map((op) => op.operationId));
@@ -121,6 +130,7 @@ export function createAdminRouter({
   async function run(op, req, res) {
     const v = validators.get(op.operationId);
     const handler = handlers[op.operationId];
+    const clientOp = clientOpMap.get(op.operationId) ?? op;
     const actor = /** @type {import('./types.js').AdminRequest} */ (req).admin;
     /** @type {number} */
     let status;
@@ -130,14 +140,69 @@ export function createAdminRouter({
     let errorCode = null;
     /** @type {{ targetType?: string, targetId?: string, details?: Record<string, unknown> }} */
     let target = {};
+
+    let identityScope = null;
+    let identityMode = 'open';
+    if (actor?.tokenId) {
+      identityScope = {
+        ownerUserId: actor.userId,
+        authKind: 'admin_token',
+        authClientKey: actor.tokenId,
+      };
+      try {
+        identityMode = await getMcpIdentitySettings(pool, identityScope);
+      } catch {
+        identityMode = 'open';
+      }
+    }
+
     try {
       const params = { ...req.params };
       const query = { ...req.query };
+
+      if (identityMode !== 'open') {
+        const queryParams = clientOp.queryParams ?? op.parameters?.filter((p) => p.in === 'query') ?? [];
+        const hasSensitiveSearch = queryParams.some(
+          (p) => p.sensitiveUserSearch || p.schema?.['x-tunnus-sensitive-user-search'] || p['x-tunnus-sensitive-user-search'],
+        );
+        if (hasSensitiveSearch && (query.q || query.name || query.title || query.email)) {
+          throw invalid('Search by direct email or name is disabled in restricted identity mode', [
+            { path: '/q', message: 'disallowed in restricted identity mode' },
+          ]);
+        }
+      }
+
       const paramCheck = v.params(params);
       if (!paramCheck.ok) throw invalid('Invalid request', paramCheck.details);
       const queryCheck = v.query(query);
       if (!queryCheck.ok) throw invalid('Invalid request', queryCheck.details);
       const requestBody = bodyOf(op, v, req);
+
+      let mappedParams = params;
+      let mappedBody = requestBody;
+      if (identityMode !== 'open') {
+        try {
+          const mapped = await mapOperationInput(clientOp, params, requestBody, async (val) => {
+            if (identityMode === 'ref_only' && typeof val === 'string' && val.startsWith('pseudo:')) {
+              throw new AdminError(
+                400,
+                'invalid_request',
+                'Pseudonym inputs are not allowed in ref_only mode',
+              );
+            }
+            return await resolveMcpUserReference(pool, identityScope, val, identityMode);
+          });
+          mappedParams = mapped.params;
+          mappedBody = mapped.body;
+        } catch (err) {
+          if (err instanceof AdminError) throw err;
+          throw invalid(
+            err?.code === 'target_not_linked'
+              ? 'This identity is not linked to a Tunnus account'
+              : 'Unknown, expired, or invalid user reference',
+          );
+        }
+      }
 
       const result =
         (await handler({
@@ -148,19 +213,33 @@ export function createAdminRouter({
           getClients,
           actor: { userId: actor.userId, tokenId: actor.tokenId },
           ip: req.ip ?? null,
-          params,
+          params: mappedParams,
           query,
-          body: requestBody,
+          body: mappedBody,
           reloadKeys,
           getProvider,
         })) ?? {};
       status = result.status ?? 200;
       body = status === 204 ? undefined : result.body;
       target = result.audit ?? {};
+
+      if (identityMode !== 'open' && status < 300 && body !== undefined && op.operationId !== 'getMe') {
+        body = await projectOperationOutput(clientOp, body, (uid) =>
+          representMcpUser(pool, identityScope, uid, identityMode),
+        );
+      }
     } catch (err) {
       if (err instanceof AdminError) {
         status = err.status;
-        body = errorBody(err.code, err.message, err.details);
+        let msg = err.message;
+        if (identityMode !== 'open') {
+          msg = msg.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[redacted]');
+          msg = msg.replace(
+            /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+            '[redacted]',
+          );
+        }
+        body = errorBody(err.code, msg, identityMode === 'open' ? err.details : undefined);
         errorCode = err.code;
       } else {
         logger.error(
@@ -173,7 +252,7 @@ export function createAdminRouter({
       }
     }
 
-    if (validateResponses && errorCode !== 'internal') {
+    if (validateResponses && identityMode === 'open' && errorCode !== 'internal') {
       const check = v.response(status, body);
       if (!check.ok) {
         logger.error(

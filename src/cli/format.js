@@ -55,9 +55,14 @@ function cell(value) {
  */
 export function formatTable(items, itemSchema) {
   if (items.length === 0) return 'No items.\n';
+  const isRestrictedOutput = items.some(
+    (item) =>
+      typeof item.id === 'string' && (item.id.startsWith('pseudo:') || item.id.startsWith('ref:')),
+  );
   const columns = Object.entries(itemSchema?.properties ?? {})
     .filter(([, schema]) => isColumn(schema))
-    .map(([name]) => name);
+    .map(([name]) => name)
+    .filter((name) => !isRestrictedOutput || items.some((item) => item[name] !== undefined));
   const rows = items.map((item) => columns.map((c) => cell(item[c])));
   const widths = columns.map((c, i) => Math.max(c.length, ...rows.map((r) => r[i].length)));
   /** @param {string[]} cells */
