@@ -358,3 +358,39 @@ describe('multi-resource indicator support in provider', () => {
     expect(disallowed).toBeUndefined();
   });
 });
+
+describe('defaultResourceUriFor', () => {
+  it('picks the first URI in allowed_resources or synthesizes one for bare identifiers', async () => {
+    const { defaultResourceUriFor } = await import('../src/oidc/provider.js');
+    const clientsList = [
+      {
+        client_id: 'canva',
+        allowed_resources: ['pigateway', 'https://kehitys.riihimaenseurakunta.fi/sissi'],
+      },
+      {
+        client_id: 'bare-only',
+        allowed_resources: ['pigateway'],
+      },
+      {
+        client_id: 'plain-oidc',
+      },
+    ];
+    expect(
+      defaultResourceUriFor({ clientId: 'canva' }, clientsList, 'https://id.example.org/identity'),
+    ).toBe('https://kehitys.riihimaenseurakunta.fi/sissi');
+    expect(
+      defaultResourceUriFor(
+        { clientId: 'bare-only' },
+        clientsList,
+        'https://id.example.org/identity',
+      ),
+    ).toBe('https://id.example.org/identity/resource/bare-only');
+    expect(
+      defaultResourceUriFor(
+        { clientId: 'plain-oidc' },
+        clientsList,
+        'https://id.example.org/identity',
+      ),
+    ).toBeUndefined();
+  });
+});

@@ -203,3 +203,16 @@ describe('secrets and oidc-provider validation', () => {
     ).rejects.toMatchObject({ code: 'invalid_request' });
   });
 });
+
+describe('allowed_resources bare identifiers', () => {
+  it('accepts resource identifiers such as pigateway alongside https URLs', () => {
+    expect(
+      validateMetadata({
+        allowed_resources: ['pigateway', 'https://kehitys.riihimaenseurakunta.fi/sissi'],
+      }),
+    ).toEqual({
+      allowed_resources: ['pigateway', 'https://kehitys.riihimaenseurakunta.fi/sissi'],
+    });
+    expect(() => validateMetadata({ allowed_resources: ['bad space'] })).toThrowError(ClientError);
+  });
+});

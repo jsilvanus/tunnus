@@ -13,6 +13,34 @@ import {
 
 export { EXTRA_CLIENT_METADATA_PROPERTIES };
 
+function clientAllowedResourcesOf(client, clients) {
+  const id = client?.clientId || client?.client_id;
+  const rawClient = id ? clients?.find((cl) => cl.client_id === id) : undefined;
+  const list = client?.allowed_resources || rawClient?.allowed_resources;
+  return Array.isArray(list) ? list.filter((r) => typeof r === 'string' && r.length > 0) : [];
+}
+
+function isAbsoluteResourceUri(value) {
+  return typeof value === 'string' && Boolean(URL.parse(value)?.href) && !value.includes('#');
+}
+
+/**
+ * Default RFC 8707 resource URI for a client that configures `allowed_resources`,
+ * used when `/auth` or `/token` omits `resource` (e.g. third-party OAuth integrations like Canva).
+ * @param {any} client
+ * @param {Record<string, any>[]} clients
+ * @param {string} issuer
+ * @returns {string | undefined}
+ */
+export function defaultResourceUriFor(client, clients, issuer) {
+  const allowed = clientAllowedResourcesOf(client, clients);
+  if (allowed.length === 0) return undefined;
+  const firstUri = allowed.find(isAbsoluteResourceUri);
+  if (firstUri) return firstUri;
+  const id = client?.clientId || client?.client_id || 'client';
+  return `${String(issuer).replace(/\/+$/, '')}/resource/${encodeURIComponent(String(id))}`;
+}
+
 /**
  * Create the getResourceServerInfo resolver for RFC 8707 / RFC 9728 resource indicators.
  * @param {{ config: import('../config.js').Config, clients: Record<string, any>[] }} deps
@@ -34,6 +62,12 @@ export function createResourceServerInfoResolver({ config, clients }) {
     } else if (
       Array.isArray(clientAllowedResources) &&
       clientAllowedResources.includes(resourceIndicator)
+    ) {
+      isAllowed = true;
+    } else if (
+      Array.isArray(clientAllowedResources) &&
+      clientAllowedResources.length > 0 &&
+      resourceIndicator === defaultResourceUriFor(c, clients, config.issuer)
     ) {
       isAllowed = true;
     } else if (isFirstParty) {
@@ -79,7 +113,7 @@ export function createResourceServerInfoResolver({ config, clients }) {
     if (!isAllowed) return /** @type {any} */ (undefined);
 
     return {
-      scope: 'mcp',
+      scope: ctx?.oidc ? 'openid offline_access email profile groups mcp' : 'mcp',
       audience: resourceIndicator,
       accessTokenTTL: 600,
       accessTokenFormat: 'jwt',
@@ -120,6 +154,8 @@ export function createProvider({ config, pool, clients, jwks }) {
   const scopes = ['openid', 'offline_access', 'email', 'profile', 'groups'];
   if (mcpOauth) scopes.push('mcp');
 
+  const findAccount = createFindAccount(pool);
+
   const provider = new Provider(config.issuer, {
     adapter: createAdapterClass(pool),
     clients: clients.map(normalizeClientForProvider),
@@ -128,7 +164,7 @@ export function createProvider({ config, pool, clients, jwks }) {
     },
     jwks,
     cookies: { keys: config.cookieSecrets },
-    findAccount: createFindAccount(pool),
+    findAccount,
     claims: {
       openid: ['sub'],
       email: ['email', 'email_verified'],
@@ -170,18 +206,60 @@ export function createProvider({ config, pool, clients, jwks }) {
       // Clients may revoke their own access and refresh tokens (RFC 7009).
       revocation: { enabled: true },
       backchannelLogout: { enabled: true },
+      resourceIndicators: {
+        enabled: true,
+        defaultResource: async (_ctx, client, oneOf) => {
+          if (Array.isArray(oneOf)) {
+            return oneOf.find(isAbsoluteResourceUri) ?? oneOf[0];
+          }
+          return defaultResourceUriFor(client, clients, config.issuer);
+        },
+        useGrantedResource: async (_ctx, model) => Boolean(model?.resource),
+        getResourceServerInfo: createResourceServerInfoResolver({ config, clients }),
+      },
       ...(mcpOauth
         ? {
             clientIdMetadataDocument: {
               enabled: true,
               ack: 'draft-02',
             },
-            resourceIndicators: {
-              enabled: true,
-              getResourceServerInfo: createResourceServerInfoResolver({ config, clients }),
-            },
           }
         : {}),
+    },
+    formats: {
+      customizers: {
+        jwt: async (ctx, token, structuredToken) => {
+          const explicitResource = ctx?.oidc?.params?.resource;
+          const allowed = clientAllowedResourcesOf(
+            token.client ?? { client_id: token.clientId },
+            clients,
+          );
+          if (!explicitResource && allowed.length > 0) {
+            structuredToken.payload.aud = allowed.length === 1 ? allowed[0] : [...allowed];
+          }
+          if (token.accountId) {
+            const account =
+              ctx?.oidc?.entities?.Account || (await findAccount(ctx, token.accountId));
+            const claims = account ? await account.claims('access_token', token.scope) : null;
+            if (claims) {
+              const scopeSet = new Set(String(token.scope ?? '').split(' ').filter(Boolean));
+              if (
+                (scopeSet.has('groups') || alwaysGroups.has(token.clientId)) &&
+                Array.isArray(claims.groups)
+              ) {
+                structuredToken.payload.groups = claims.groups;
+              }
+              if (scopeSet.has('profile') && claims.name) {
+                structuredToken.payload.name = claims.name;
+              }
+              if (scopeSet.has('email') && claims.email) {
+                structuredToken.payload.email = claims.email;
+                structuredToken.payload.email_verified = Boolean(claims.email_verified);
+              }
+            }
+          }
+        },
+      },
     },
     // First-party clients skip the consent screen.
     loadExistingGrant: async (ctx) => {
@@ -194,6 +272,9 @@ export function createProvider({ config, pool, clients, jwks }) {
         // later is added to that grant, so the consent screen is not shown for it.
         if (grant && client.first_party && oidc.params.scope) {
           grant.addOIDCScope(oidc.params.scope);
+          for (const indicator of Object.keys(oidc.resourceServers ?? {})) {
+            grant.addResourceScope(indicator, oidc.params.scope);
+          }
           await grant.save();
         }
         return grant;
@@ -204,6 +285,9 @@ export function createProvider({ config, pool, clients, jwks }) {
         accountId: oidc.session.accountId,
       });
       grant.addOIDCScope(oidc.params.scope ?? '');
+      for (const indicator of Object.keys(oidc.resourceServers ?? {})) {
+        grant.addResourceScope(indicator, oidc.params.scope ?? '');
+      }
       await grant.save();
       return grant;
     },

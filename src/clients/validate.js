@@ -30,7 +30,7 @@ export const EXTRA_CLIENT_METADATA_PROPERTIES = [
 
 export const ALLOWED_AUTH_METHODS = new Set(['client_secret_basic', 'client_secret_post', 'none']);
 
-const URL_ARRAY_KEYS = new Set(['redirect_uris', 'post_logout_redirect_uris', 'allowed_resources']);
+const URL_ARRAY_KEYS = new Set(['redirect_uris', 'post_logout_redirect_uris']);
 const STRING_ARRAY_KEYS = new Set(['grant_types', 'response_types']);
 const BOOLEAN_KEYS = new Set([
   'first_party',
@@ -174,6 +174,30 @@ export function validateMetadata(metadata, { allowNullClear = false } = {}) {
           bad.push({
             path: `/${key}/${i}`,
             message: 'must be an https URL (http allowed only for localhost or 127.0.0.1)',
+          });
+        }
+      }
+      if (bad.length > 0) {
+        details.push(...bad);
+      } else {
+        cleaned[key] = [...value];
+      }
+      continue;
+    }
+
+    if (key === 'allowed_resources') {
+      if (!Array.isArray(value)) {
+        details.push({ path: '/allowed_resources', message: 'must be an array of URLs or resource identifiers' });
+        continue;
+      }
+      const bad = [];
+      for (let i = 0; i < value.length; i++) {
+        const item = value[i];
+        const ok = isAllowedUrl(item) || (typeof item === 'string' && CLIENT_ID_PATTERN.test(item));
+        if (!ok) {
+          bad.push({
+            path: `/allowed_resources/${i}`,
+            message: 'must be an https URL (http allowed only for localhost or 127.0.0.1) or a resource identifier',
           });
         }
       }
