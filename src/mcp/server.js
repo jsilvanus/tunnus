@@ -343,6 +343,12 @@ export function createMcpServer({
     }
 
     if (tool.name === 'executeCommitList') {
+      if (identityMode !== 'open') {
+        return errorResult(
+          `Executing staged actions is disabled for MCP in restricted identity mode (${identityMode}). ` +
+            `Review and execute the staged commit list on the web interface at ${resolvedAccountUrl} (or CLI with "tunnus mcp commit").`,
+        );
+      }
       const state = await getState();
       if (!isFixedTimeRunning(state)) {
         return errorResult(
@@ -433,25 +439,25 @@ export function createMcpServer({
 
     if (isMutative) {
       const state = await getState();
-      if (isFixedTimeRunning(state)) {
-        // Direct execution allowed by active fixed-time window
+      if (identityMode === 'open' && isFixedTimeRunning(state)) {
+        // Direct execution allowed by active fixed-time window ONLY in open mode
         try {
           const res = await callApi(tool.operation, {
             params,
             body: tool.operation.bodySchema ? mappedBody : undefined,
           });
-          const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, representIdentityUser);
+          const structured = res.body ?? {};
           return {
             content: [{ type: 'text', text: JSON.stringify(structured, null, 2) }],
             structuredContent: structured,
           };
         } catch (err) {
-          if (err instanceof ApiError) return errorResult(identityMode === 'open' ? describeApiError(err).join('\n') : 'The operation failed. Check the supplied reference and permissions, then try again.');
+          if (err instanceof ApiError) return errorResult(describeApiError(err).join('\n'));
           throw err;
         }
       }
 
-      if (state.mode === 'disabled') {
+      if (state.mode === 'disabled' && (identityMode === 'open' || !isFixedTimeRunning(state))) {
         return errorResult(
           `Mutative actions are currently disabled for MCP. Direct the user to ${resolvedAccountUrl} to enable a 15-minute direct window or allow staging (or run "tunnus mcp allow" on CLI).`,
         );

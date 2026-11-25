@@ -172,4 +172,40 @@ describe('MCP restricted identity modes', () => {
     expect(JSON.stringify(result)).not.toContain(USER_ID);
     expect(JSON.stringify(result)).not.toContain('person@example.org');
   });
+
+  it('mutative actions never execute directly when restricted mode is active and always queue', async () => {
+    const executed = [];
+    const fixedTimeUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const state = {
+      mode: 'commit-list',
+      fixedTimeUntil, // Fixed-time window is active!
+      listLocked: false,
+      commitList: [],
+    };
+    const { client } = await connect({
+      mode: 'pseudo_ref',
+      state,
+      callApi: async (op, args) => {
+        executed.push({ op, args });
+        return { status: 200, body: USER };
+      },
+    });
+
+    const res = await client.callTool({
+      name: 'updateUser',
+      arguments: { userId: 'pseudo:Person B', body: { status: 'active' } },
+    });
+
+    expect(executed).toHaveLength(0); // NEVER executed directly!
+    expect(res.structuredContent.staged).toBe(true);
+    expect(state.commitList).toHaveLength(1);
+    expect(state.commitList[0].params.userId).toBe(USER_ID);
+
+    const execRes = await client.callTool({
+      name: 'executeCommitList',
+      arguments: {},
+    });
+    expect(execRes.isError).toBe(true);
+    expect(execRes.content[0].text).toContain('Executing staged actions is disabled for MCP in restricted identity mode');
+  });
 });

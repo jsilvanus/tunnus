@@ -288,6 +288,45 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
     );
     const identityModes = new Map(identitySettingRows.map((r) => [r.auth_client_key, r.identity_mode]));
 
+    let adminUsers = null;
+    const isAdmin = acct.user.groups.includes('admin') || Boolean(acct.user.is_admin);
+    if (isAdmin) {
+      const [userListRes, allGroupsRes] = await Promise.all([
+        pool.query("SELECT id, email, display_name FROM users WHERE status = 'active' ORDER BY display_name, email LIMIT 500"),
+        pool.query('SELECT id, name FROM groups ORDER BY name LIMIT 200'),
+      ]);
+      const userList = userListRes.rows;
+      const allGroups = allGroupsRes.rows;
+
+      let selectedUser = null;
+      let selectedGroups = [];
+      const userSearch = typeof req.query.user_search === 'string' ? req.query.user_search.trim() : '';
+      if (userSearch) {
+        const { rows } = await pool.query(
+          'SELECT id, email, display_name FROM users WHERE email = $1 OR id::text = $1 OR display_name ILIKE $2 LIMIT 1',
+          [userSearch, `%${userSearch}%`],
+        );
+        if (rows[0]) {
+          selectedUser = rows[0];
+          const { rows: gRows } = await pool.query(
+            'SELECT g.id, g.name FROM user_groups ug JOIN groups g ON g.id = ug.group_id WHERE ug.user_id = $1 ORDER BY g.name',
+            [selectedUser.id],
+          );
+          selectedGroups = gRows;
+        }
+      }
+
+      adminUsers = {
+        users: userList,
+        selectedUser,
+        selectedGroups,
+        allGroups,
+        userSearch,
+        notice: typeof req.query.admin_notice === 'string' ? req.query.admin_notice : undefined,
+        error: typeof req.query.admin_error === 'string' ? req.query.admin_error : undefined,
+      };
+    }
+
     /** @type {Array<{ clientId: string, clientName: string, scopes: string[], resources?: string[], isMcp: boolean, identityMode?: string }>} */
     const apps = [];
     for (const [clientId, item] of appsMap) {
@@ -335,7 +374,111 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
         apps,
         appNotice: typeof req.query.app_notice === 'string' ? req.query.app_notice : undefined,
         mcp,
+        adminUsers,
       }),
+    );
+  });
+
+  router.post('/account/admin/groups/add', form, async (req, res) => {
+    const acct = await resolveAccount(req, res);
+    if (!acct) return void res.redirect(302, `${config.basePath}/account`);
+    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) {
+      return void res.status(403).send('Invalid CSRF token');
+    }
+    const isAdmin = acct.user.groups.includes('admin') || Boolean(acct.user.is_admin);
+    if (!isAdmin) {
+      return void res.status(403).send('Forbidden: admin only');
+    }
+    const userId = String(req.body.userId ?? '').trim();
+    const groupName = String(req.body.groupName ?? '').trim();
+    const userSearch = String(req.body.userSearch ?? '').trim();
+
+    if (!userId || !groupName) {
+      return void res.redirect(
+        302,
+        `${config.basePath}/account?user_search=${encodeURIComponent(userSearch)}&admin_error=${encodeURIComponent('User ID and group name are required')}`,
+      );
+    }
+
+    const GROUP_PATTERN = /^[a-zA-Z0-9_\u00c0-\u017e]+([./:@_-][a-zA-Z0-9_\u00c0-\u017e*]+)*$/;
+    if (groupName.length > 128 || !GROUP_PATTERN.test(groupName)) {
+      return void res.redirect(
+        302,
+        `${config.basePath}/account?user_search=${encodeURIComponent(userSearch)}&admin_error=${encodeURIComponent('Invalid group name')}`,
+      );
+    }
+
+    const { rows: uRows } = await pool.query('SELECT id, email FROM users WHERE id = $1', [userId]);
+    if (!uRows[0]) {
+      return void res.redirect(
+        302,
+        `${config.basePath}/account?user_search=${encodeURIComponent(userSearch)}&admin_error=${encodeURIComponent('User not found')}`,
+      );
+    }
+
+    const { rows: gRows } = await pool.query(
+      `INSERT INTO groups (name) VALUES ($1)
+       ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id`,
+      [groupName],
+    );
+    const groupId = gRows[0].id;
+
+    await pool.query(
+      `INSERT INTO user_groups (user_id, group_id, granted_by)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, group_id) DO NOTHING`,
+      [userId, groupId, acct.user.id],
+    );
+
+    await audit(pool, {
+      actorUserId: acct.user.id,
+      action: 'admin.grant_membership',
+      targetType: 'user',
+      targetId: userId,
+      ip: req.ip ?? null,
+      details: { group: groupName },
+    });
+
+    res.redirect(
+      302,
+      `${config.basePath}/account?user_search=${encodeURIComponent(userSearch || uRows[0].email)}&admin_notice=${encodeURIComponent(`Added to group ${groupName}`)}`,
+    );
+  });
+
+  router.post('/account/admin/groups/remove', form, async (req, res) => {
+    const acct = await resolveAccount(req, res);
+    if (!acct) return void res.redirect(302, `${config.basePath}/account`);
+    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) {
+      return void res.status(403).send('Invalid CSRF token');
+    }
+    const isAdmin = acct.user.groups.includes('admin') || Boolean(acct.user.is_admin);
+    if (!isAdmin) {
+      return void res.status(403).send('Forbidden: admin only');
+    }
+    const userId = String(req.body.userId ?? '').trim();
+    const groupName = String(req.body.groupName ?? '').trim();
+    const userSearch = String(req.body.userSearch ?? '').trim();
+
+    const { rows: gRows } = await pool.query('SELECT id FROM groups WHERE name = $1', [groupName]);
+    if (gRows[0]) {
+      await pool.query(
+        'DELETE FROM user_groups WHERE user_id = $1 AND group_id = $2',
+        [userId, gRows[0].id],
+      );
+      await audit(pool, {
+        actorUserId: acct.user.id,
+        action: 'admin.revoke_membership',
+        targetType: 'user',
+        targetId: userId,
+        ip: req.ip ?? null,
+        details: { group: groupName },
+      });
+    }
+
+    res.redirect(
+      302,
+      `${config.basePath}/account?user_search=${encodeURIComponent(userSearch)}&admin_notice=${encodeURIComponent(`Removed from group ${groupName}`)}`,
     );
   });
 

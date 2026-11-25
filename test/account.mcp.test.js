@@ -401,4 +401,162 @@ describe('createAccountRouter MCP endpoints', () => {
     expect(resB.text).not.toContain('users delete');
     expect(resB.text).toContain('No pending actions in commit list.');
   });
+
+  describe('admin user search and group management on /account', () => {
+    const adminId = '00000000-0000-0000-0000-000000000001';
+    const regularId = '00000000-0000-0000-0000-000000000002';
+    const targetUserId = '00000000-0000-0000-0000-000000000003';
+
+    function createAdminApp(groupsState = ['papit']) {
+      const app = express();
+      const pool = {
+        query: async (/** @type {string} */ sql, /** @type {any[]} */ params = []) => {
+          if (sql.includes('FROM users u')) {
+            const id = params[0];
+            const isAdmin = id === adminId;
+            return {
+              rows: [
+                {
+                  id,
+                  email: isAdmin ? 'admin@example.org' : 'user@example.org',
+                  display_name: isAdmin ? 'Admin' : 'Regular User',
+                  status: 'active',
+                  groups: isAdmin ? ['admin'] : [],
+                  is_admin: isAdmin,
+                },
+              ],
+            };
+          }
+          if (sql.includes('totp_enabled_at, last_email_verified_at FROM users')) {
+            return { rows: [{ totp_enabled_at: null, last_email_verified_at: new Date() }] };
+          }
+          if (sql.includes('mcp_state')) {
+            return { rows: [] };
+          }
+          if (sql.includes('SELECT id, email, display_name FROM users WHERE status =')) {
+            return {
+              rows: [
+                { id: targetUserId, email: 'target@example.org', display_name: 'Target User' },
+              ],
+            };
+          }
+          if (sql.includes('SELECT id, name FROM groups ORDER BY name')) {
+            return {
+              rows: [
+                { id: 10, name: 'papit' },
+                { id: 20, name: 'kanttorit' },
+              ],
+            };
+          }
+          if (sql.includes('SELECT id, email, display_name FROM users WHERE email = $1 OR id::text = $1 OR display_name ILIKE $2')) {
+            return {
+              rows: [
+                { id: targetUserId, email: 'target@example.org', display_name: 'Target User' },
+              ],
+            };
+          }
+          if (sql.includes('SELECT g.id, g.name FROM user_groups ug JOIN groups g')) {
+            return {
+              rows: groupsState.map((name, idx) => ({ id: idx + 1, name })),
+            };
+          }
+          if (sql.includes('SELECT id, email FROM users WHERE id = $1')) {
+            return { rows: [{ id: targetUserId, email: 'target@example.org' }] };
+          }
+          if (sql.includes('INSERT INTO groups')) {
+            return { rows: [{ id: 99, name: params[0] }] };
+          }
+          if (sql.includes('INSERT INTO user_groups')) {
+            groupsState.push(params[1] === 99 ? 'uusi-ryhma' : 'kanttorit');
+            return { rowCount: 1 };
+          }
+          if (sql.includes('SELECT id FROM groups WHERE name = $1')) {
+            return { rows: [{ id: 10, name: params[0] }] };
+          }
+          if (sql.includes('DELETE FROM user_groups')) {
+            const idx = groupsState.indexOf('papit');
+            if (idx >= 0) groupsState.splice(idx, 1);
+            return { rowCount: 1 };
+          }
+          if (sql.includes('INSERT INTO audit')) {
+            return { rowCount: 1 };
+          }
+          return { rows: [] };
+        },
+      };
+      app.use(
+        createAccountRouter({
+          config: /** @type {any} */ (mockConfig),
+          pool: /** @type {any} */ (pool),
+          getProvider: () => ({ createContext: () => ({}), Session: { get: async () => null } }),
+          mailer: /** @type {any} */ ({}),
+        }),
+      );
+      return { app, groupsState };
+    }
+
+    it('renders admin user search and datalist for admin on /account', async () => {
+      const { app } = createAdminApp();
+      const res = await request(app, '/account', {
+        headers: { cookie: makeSessionCookie(adminId) },
+      });
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('Manage Users');
+      expect(res.text).toContain('id="admin-users-datalist"');
+      expect(res.text).toContain('target@example.org');
+    });
+
+    it('shows selected user details, groups with delete buttons, and add group form', async () => {
+      const { app } = createAdminApp(['papit']);
+      const res = await request(app, '/account?user_search=target@example.org', {
+        headers: { cookie: makeSessionCookie(adminId) },
+      });
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('Target User');
+      expect(res.text).toContain('<code>papit</code>');
+      expect(res.text).toContain('action="/account/admin/groups/remove"');
+      expect(res.text).toContain('action="/account/admin/groups/add"');
+    });
+
+    it('adds a group via POST /account/admin/groups/add and removes via /account/admin/groups/remove', async () => {
+      const { app } = createAdminApp(['papit']);
+      const csrf = makeCsrf();
+
+      const addRes = await request(app, '/account/admin/groups/add', {
+        method: 'POST',
+        headers: {
+          cookie: makeSessionCookie(adminId),
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+        body: `csrf=${csrf}&userId=${targetUserId}&groupName=kanttorit&userSearch=target@example.org`,
+      });
+      expect(addRes.status).toBe(302);
+      expect(addRes.headers.get('location')).toContain('admin_notice=Added%20to%20group%20kanttorit');
+
+      const removeRes = await request(app, '/account/admin/groups/remove', {
+        method: 'POST',
+        headers: {
+          cookie: makeSessionCookie(adminId),
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+        body: `csrf=${csrf}&userId=${targetUserId}&groupName=papit&userSearch=target@example.org`,
+      });
+      expect(removeRes.status).toBe(302);
+      expect(removeRes.headers.get('location')).toContain('admin_notice=Removed%20from%20group%20papit');
+    });
+
+    it('forbids non-admin users from group operations', async () => {
+      const { app } = createAdminApp();
+      const csrf = makeCsrf();
+      const res = await request(app, '/account/admin/groups/add', {
+        method: 'POST',
+        headers: {
+          cookie: makeSessionCookie(regularId),
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+        body: `csrf=${csrf}&userId=${targetUserId}&groupName=test`,
+      });
+      expect(res.status).toBe(403);
+    });
+  });
 });

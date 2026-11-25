@@ -555,6 +555,82 @@ ${appsContent}
 <p><a href="${esc(p.basePath)}/account/mcp-identities">Manage MCP pseudonyms and temporary references</a></p>
 </div>`;
 
+  let adminSection = '';
+  if (p.adminUsers) {
+    const { adminUsers } = p;
+    const adminNoticeBanner = adminUsers.notice
+      ? `<p style="color:#0f5132;background:#d1e7dd;padding:.5rem;border-radius:.3rem;font-size:.9rem">${esc(adminUsers.notice)}</p>`
+      : '';
+    const adminErrorBanner = adminUsers.error
+      ? `<p style="color:#842029;background:#f8d7da;padding:.5rem;border-radius:.3rem;font-size:.9rem">${esc(adminUsers.error)}</p>`
+      : '';
+
+    const userDatalistOptions = (adminUsers.users || [])
+      .map((u) => `<option value="${esc(u.email)}">${esc(u.display_name || u.email)} (${esc(u.email)})</option>`)
+      .join('\n');
+
+    const allGroupDatalistOptions = (adminUsers.allGroups || [])
+      .map((g) => `<option value="${esc(g.name)}"></option>`)
+      .join('\n');
+
+    let userDetail = '';
+    if (adminUsers.selectedUser) {
+      const u = adminUsers.selectedUser;
+      const groups = adminUsers.selectedGroups || [];
+      const groupItems = groups.length
+        ? groups
+            .map(
+              (g) => `<li style="display:flex;align-items:center;gap:.5rem;margin:.3rem 0">
+<code>${esc(g.name)}</code>
+<form method="post" action="${esc(p.basePath)}/account/admin/groups/remove" style="display:inline;margin:0">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<input type="hidden" name="userId" value="${esc(u.id)}">
+<input type="hidden" name="groupName" value="${esc(g.name)}">
+<input type="hidden" name="userSearch" value="${esc(adminUsers.userSearch || '')}">
+<button class="secondary" style="padding:.15rem .4rem;font-size:.75rem">✕ ${esc(t(locale, 'account_admin_users_delete'))}</button>
+</form>
+</li>`,
+            )
+            .join('\n')
+        : `<li style="color:#666"><em>${esc(t(locale, 'account_admin_users_no_groups'))}</em></li>`;
+
+      userDetail = `<div style="background:#f8f9fa;border:1px solid #ddd;border-radius:.4rem;padding:1rem;margin-top:1rem">
+<h4 style="margin:0 0 .5rem 0">${esc(u.display_name || u.email)} <small style="color:#666;font-weight:normal">(${esc(u.email)})</small></h4>
+<p style="margin:.3rem 0"><strong>${esc(t(locale, 'account_admin_users_groups'))}:</strong></p>
+<ul style="list-style:none;padding:0;margin:.5rem 0">
+${groupItems}
+</ul>
+<form method="post" action="${esc(p.basePath)}/account/admin/groups/add" style="display:flex;gap:.5rem;align-items:center;margin-top:.8rem">
+<input type="hidden" name="csrf" value="${esc(p.csrf)}">
+<input type="hidden" name="userId" value="${esc(u.id)}">
+<input type="hidden" name="userSearch" value="${esc(adminUsers.userSearch || '')}">
+<input type="text" name="groupName" list="admin-all-groups-datalist" placeholder="${esc(t(locale, 'account_admin_users_add_placeholder'))}" style="width:180px;padding:.3rem .5rem;font-size:.85rem" required pattern="^[a-zA-Z0-9_\\u00c0-\\u017e]+([./:@_-][a-zA-Z0-9_\\u00c0-\\u017e*]+)*$">
+<datalist id="admin-all-groups-datalist">
+${allGroupDatalistOptions}
+</datalist>
+<button class="alt" style="padding:.3rem .6rem;font-size:.85rem">${esc(t(locale, 'account_admin_users_add_button'))}</button>
+</form>
+</div>`;
+    } else if (adminUsers.userSearch) {
+      userDetail = `<p style="color:#666;font-size:.9rem;margin-top:.5rem"><em>${esc(t(locale, 'account_admin_users_not_found', { query: adminUsers.userSearch }))}</em></p>`;
+    }
+
+    adminSection = `<div style="border:1px solid #ccc;border-radius:.4rem;padding:1rem;margin-top:1.5rem">
+<h3 style="margin-top:0">${esc(t(locale, 'account_admin_users_title'))}</h3>
+${adminNoticeBanner}
+${adminErrorBanner}
+<form method="get" action="${esc(p.basePath)}/account" style="display:flex;gap:.5rem;align-items:center">
+<input type="text" name="user_search" list="admin-users-datalist" placeholder="${esc(t(locale, 'account_admin_users_search_placeholder'))}" value="${esc(adminUsers.userSearch || '')}" style="flex:1" autocomplete="off">
+<datalist id="admin-users-datalist">
+${userDatalistOptions}
+</datalist>
+<button class="alt" style="padding:.4rem .8rem">${esc(t(locale, 'account_admin_users_find'))}</button>
+${adminUsers.userSearch ? `<a href="${esc(p.basePath)}/account" style="font-size:.85rem;color:#666;text-decoration:none">${esc(t(locale, 'account_admin_users_clear'))}</a>` : ''}
+</form>
+${userDetail}
+</div>`;
+  }
+
   const statusBadge =
     p.isActive !== false
       ? `<span style="display:inline-block;padding:.2rem .4rem;border-radius:.25rem;font-size:.8rem;font-weight:600;background:#d4edda;color:#155724">${esc(t(locale, 'account_status_active'))}</span>`
@@ -594,6 +670,7 @@ ${groupsRow}
 </table>
 ${p.isActive !== false ? appsSection : ''}
 ${p.isActive !== false ? mcpSection : ''}
+${p.isActive !== false ? adminSection : ''}
 <div class="actions" style="margin-top:1.5rem">
 ${totpAction}
 <form method="post" action="${esc(p.basePath)}/account/logout">

@@ -126,6 +126,16 @@ const messages = {
     account_mcp_lock_required_to_commit:
       'Lock the list before committing to ensure no new actions are added during review.',
     account_mcp_destructive: 'Destructive',
+    account_admin_users_title: 'Manage Users & Groups',
+    account_admin_users_search_placeholder: 'Find person by name or email...',
+    account_admin_users_find: 'Find',
+    account_admin_users_clear: 'Clear',
+    account_admin_users_not_found: 'No user found matching "{query}".',
+    account_admin_users_groups: 'Groups',
+    account_admin_users_no_groups: 'No groups',
+    account_admin_users_delete: 'Delete',
+    account_admin_users_add_placeholder: 'Group name',
+    account_admin_users_add_button: '+ Add',
   },
   fi: {
     signin: 'Kirjaudu',
@@ -248,6 +258,16 @@ const messages = {
     account_mcp_lock_required_to_commit:
       'Lukitse lista ennen suoritusta varmistaaksesi, ettei uusia toimintoja lisätä tarkastuksen aikana.',
     account_mcp_destructive: 'Tuhoava',
+    account_admin_users_title: 'Käyttäjien ja ryhmien hallinta',
+    account_admin_users_search_placeholder: 'Hae henkilöä nimellä tai sähköpostilla...',
+    account_admin_users_find: 'Hae',
+    account_admin_users_clear: 'Tyhjennä',
+    account_admin_users_not_found: 'Käyttäjää ei löytynyt haulla "{query}".',
+    account_admin_users_groups: 'Ryhmät',
+    account_admin_users_no_groups: 'Ei ryhmiä',
+    account_admin_users_delete: 'Poista',
+    account_admin_users_add_placeholder: 'Ryhmän nimi',
+    account_admin_users_add_button: '+ Lisää',
   },
   sv: {
     signin: 'Logga in',
@@ -372,6 +392,16 @@ const messages = {
     account_mcp_lock_required_to_commit:
       'Lås listan före utförande för att säkerställa att inga nya åtgärder läggs till under granskningen.',
     account_mcp_destructive: 'Destruktiv',
+    account_admin_users_title: 'Hantera användare och grupper',
+    account_admin_users_search_placeholder: 'Sök person efter namn eller e-post...',
+    account_admin_users_find: 'Sök',
+    account_admin_users_clear: 'Rensa',
+    account_admin_users_not_found: 'Ingen användare hittades med sökningen "{query}".',
+    account_admin_users_groups: 'Grupper',
+    account_admin_users_no_groups: 'Inga grupper',
+    account_admin_users_delete: 'Ta bort',
+    account_admin_users_add_placeholder: 'Gruppnamn',
+    account_admin_users_add_button: '+ Lägg till',
   },
 };
 
