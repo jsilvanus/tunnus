@@ -94,3 +94,115 @@ CREATE INDEX IF NOT EXISTS discovery_services_type_idx ON discovery_services(typ
 CREATE INDEX IF NOT EXISTS discovery_services_venue_idx ON discovery_services(venue);
 CREATE INDEX IF NOT EXISTS discovery_services_disabled_idx ON discovery_services(disabled);
 ```
+
+---
+
+## 4. Export Targets & Publishing Specifications (`export_targets`)
+
+To support client applications (such as Canva companion apps, automated media pipelines, and web signages) pushing content to specific venues, screens, and broadcast switchers without hardcoded configurations, services can declare export targets under `metadata.export_targets`.
+
+Clients query `GET /api/v1/discovery?capability=export_target` to retrieve all eligible publishing targets across the parish.
+
+### Core Principles
+
+1. **Flattened Nesting (`metadata.export_targets`):**
+   Targets are placed directly under `metadata.export_targets` as an array to keep frontend parsing simple (`service.metadata?.export_targets?.map(...)`).
+
+2. **Ingest URL Resolution:**
+   - If `target.ingest.url` is an absolute URL (`https://...`), use it directly.
+   - If `target.ingest.path` is relative (`/api/v1/...`), resolve it against the service root:
+     ```javascript
+     const uploadUrl = target.ingest.url
+       ? target.ingest.url
+       : new URL(target.ingest.path, service.endpoint_url || service.url).toString();
+     ```
+
+3. **Inherit Service Auth:**
+   The client reuses the parent service's `auth` configuration (e.g. `api_key` or `oidc` token) when posting to `target.ingest.path`, unless explicitly overridden in `target.ingest.auth`.
+
+### Example Discovery Payload (`export_targets`)
+
+```json
+{
+  "updated_at": "2026-11-25T17:45:00Z",
+  "services": [
+    {
+      "id": "keskuskirkko-piprogram",
+      "name": "Keskuskirkko — Sali (Pi Program)",
+      "type": "piprogram",
+      "venue": "keskuskirkko",
+      "url": "https://gateway.keskuskirkko.riihimaenseurakunta.fi:8443",
+      "auth": {
+        "type": "api_key",
+        "header_name": "X-API-Key"
+      },
+      "capabilities": ["slides", "stage_display", "export_target"],
+      "metadata": {
+        "export_targets": [
+          {
+            "id": "sali-valkokangas-16-9",
+            "name": "Pääsalin valkokangas (16:9)",
+            "category": "slides",
+            "aspect_ratio": "16:9",
+            "resolution": {
+              "width": 1920,
+              "height": 1080,
+              "pixel_ratio": 1
+            },
+            "formats": ["png", "jpeg"],
+            "multi_page": true,
+            "ingest": {
+              "path": "/api/v1/pipgm/items",
+              "method": "POST",
+              "field_name": "files"
+            },
+            "prefill_rules": {
+              "extract_text": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "sissi-signage",
+      "name": "Kyltti / Sissi Infonäytöt",
+      "type": "signage",
+      "venue": "parish-wide",
+      "url": "https://kehitys.riihimaenseurakunta.fi/sissi",
+      "auth": {
+        "type": "oidc",
+        "client_id": "canva-pieco-app",
+        "scopes": ["signage:write"]
+      },
+      "capabilities": ["screen_push", "playlist_management", "export_target"],
+      "metadata": {
+        "export_targets": [
+          {
+            "id": "keskuskirkko-aula-portrait",
+            "name": "Keskuskirkon eteisaula (Pysty 9:16)",
+            "category": "signage",
+            "aspect_ratio": "9:16",
+            "resolution": {
+              "width": 1080,
+              "height": 1920
+            },
+            "formats": ["png", "jpeg", "mp4"],
+            "multi_page": false,
+            "ingest": {
+              "path": "/api/screens/keskuskirkko-aula/content",
+              "method": "POST"
+            },
+            "prefill_rules": {
+              "extract_text": true,
+              "field_mapping": {
+                "heading": "title",
+                "body": "description"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
+```

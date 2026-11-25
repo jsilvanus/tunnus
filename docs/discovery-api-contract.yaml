@@ -351,7 +351,18 @@ components:
           additionalProperties: true
           example:
             pipeline: primary
-            display_targets: [projector_left, projector_right]
+            export_targets:
+              - id: sali-valkokangas-16-9
+                name: Pääsalin valkokangas (16:9)
+                category: slides
+                aspect_ratio: "16:9"
+                resolution:
+                  width: 1920
+                  height: 1080
+                formats: [png, jpeg]
+                multi_page: true
+                ingest:
+                  path: /api/v1/pipgm/items
 
     ServiceAuth:
       type: object
@@ -482,3 +493,109 @@ components:
           additionalProperties: true
         disabled:
           type: boolean
+
+    ExportTarget:
+      type: object
+      required: [id, name, category, aspect_ratio, resolution, formats, ingest]
+      additionalProperties: true
+      description: |
+        Publishing and export target specifications for Canva, web publishers, and signage.
+        Located under `service.metadata.export_targets` in flattened array form.
+      properties:
+        id:
+          type: string
+          example: sali-valkokangas-16-9
+        name:
+          type: string
+          example: Pääsalin valkokangas (16:9)
+        category:
+          type: string
+          enum: [slides, signage, broadcast, print, web, social]
+          example: slides
+        aspect_ratio:
+          type: string
+          example: "16:9"
+        resolution:
+          type: object
+          required: [width, height]
+          properties:
+            width:
+              type: integer
+              example: 1920
+            height:
+              type: integer
+              example: 1080
+            pixel_ratio:
+              type: number
+              default: 1
+              example: 1
+            dpi:
+              type: integer
+              default: 72
+              example: 72
+        formats:
+          type: array
+          items:
+            type: string
+            enum: [png, jpeg, webp, mp4, pdf, svg]
+          example: [png, jpeg]
+        multi_page:
+          type: boolean
+          default: false
+          description: Whether target accepts multiple pages/slides (e.g. PiProgram) or strictly single image/video (e.g. Sissi signage).
+          example: true
+        alpha_channel:
+          type: boolean
+          default: false
+          description: Requires transparent background (e.g. ATEM downstream key graphics).
+          example: false
+        ingest:
+          $ref: '#/components/schemas/ExportIngestSpec'
+        prefill_rules:
+          type: object
+          properties:
+            extract_text:
+              type: boolean
+              default: false
+              description: Whether to extract and pre-fill headline and body text from design elements.
+              example: true
+            field_mapping:
+              type: object
+              additionalProperties: { type: string }
+              example:
+                heading: title
+                body: description
+
+    ExportIngestSpec:
+      type: object
+      description: |
+        Ingest specification for posting export packages.
+        If `url` is an absolute URL (https://...), use directly.
+        If `path` is relative (/api/v1/...), resolve against service root:
+          const uploadUrl = target.ingest.url ? target.ingest.url : new URL(target.ingest.path, service.endpoint_url || service.url).toString();
+        Service auth (e.g. api_key or oidc) is inherited from parent service.auth unless overridden in this ingest spec.
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Absolute ingest URL (overrides parent service URL)
+        path:
+          type: string
+          description: Relative path resolved against parent service URL
+          example: /api/v1/pipgm/items
+        method:
+          type: string
+          enum: [POST, PUT]
+          default: POST
+          example: POST
+        content_type:
+          type: string
+          default: multipart/form-data
+          example: multipart/form-data
+        field_name:
+          type: string
+          default: files
+          example: files
+        auth:
+          $ref: '#/components/schemas/ServiceAuth'
+          description: Optional override if different from parent service auth
