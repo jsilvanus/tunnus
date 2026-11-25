@@ -24,3 +24,9 @@ export {
   serializePushSubscription,
   urlBase64ToUint8Array,
 } from './push.js';
+
+export {
+  emitNotificationEvent,
+  sendWebPushNotification,
+  sendRelayEmail,
+} from './notify.js';
