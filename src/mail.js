@@ -51,6 +51,9 @@ function privacyUrl(config) {
  */
 function mailFooter(config, locale) {
   const lines = [];
+  if (config.brand.copyright) {
+    lines.push(config.brand.copyright);
+  }
   if (config.controller.name) {
     const contact = config.controller.contact ? ` (${config.controller.contact})` : '';
     lines.push(`${t(locale, 'mail_controller', { controller: config.controller.name })}${contact}`);

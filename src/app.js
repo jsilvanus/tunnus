@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import http from 'node:http';
 import { PassThrough } from 'node:stream';
 import express from 'express';
@@ -12,6 +13,7 @@ import { clientOperations } from './client/operations.js';
 import { createApiClient } from './client/http.js';
 import { createHealthRouter, PACKAGE_VERSION } from './health.js';
 import { createPrivacyRouter } from './web/privacy.js';
+import { createDiscoveryRouter } from './web/discovery.js';
 import { createMailRelayRouter } from './web/mailRelay.js';
 import { createMetrics } from './metrics.js';
 import { setAuditMetrics } from './audit.js';
@@ -29,6 +31,7 @@ import {
 } from './mcp/dbState.js';
 import { findActiveToken } from './adminTokens.js';
 import { loadJwks } from './oidc/keys.js';
+import { findLocalLogoFile, findLocalFaviconFile, getMimeType } from './branding.js';
 
 /**
  * Build the Express app. Everything is mounted under the issuer's path so a
@@ -48,17 +51,39 @@ export async function createApp({ config, pool, mailer }, options = {}) {
 
   const router = express.Router();
   router.use(securityHeaders(config));
-  const logoFile = process.env.BRAND_LOGO_FILE || '/app/logo.png';
-  const logoBytes = existsSync(logoFile) ? readFileSync(logoFile) : null;
-  if (logoBytes) {
-    router.get('/logo.png', (_req, res) => {
+  const logoFile = findLocalLogoFile(process.env.BRAND_LOGO_FILE);
+  const logoBytes = logoFile && existsSync(logoFile) ? readFileSync(logoFile) : null;
+  if (logoBytes && logoFile) {
+    const ext = path.extname(logoFile).toLowerCase() || '.png';
+    const mime = getMimeType(logoFile);
+    const routes = ['/logo.png'];
+    if (ext !== '.png') {
+      routes.push(`/logo${ext}`);
+    }
+    router.get(routes, (_req, res) => {
       res.set('Cache-Control', 'public, max-age=86400');
-      res.type('image/png').send(logoBytes);
+      res.type(mime).send(logoBytes);
+    });
+  }
+
+  const faviconFile = findLocalFaviconFile(process.env.BRAND_FAVICON_FILE);
+  const faviconBytes = faviconFile && existsSync(faviconFile) ? readFileSync(faviconFile) : null;
+  if (faviconBytes && faviconFile) {
+    const ext = path.extname(faviconFile).toLowerCase() || '.ico';
+    const mime = getMimeType(faviconFile);
+    const routes = ['/favicon.ico'];
+    if (ext !== '.ico') {
+      routes.push(`/favicon${ext}`);
+    }
+    router.get(routes, (_req, res) => {
+      res.set('Cache-Control', 'public, max-age=86400');
+      res.type(mime).send(faviconBytes);
     });
   }
   router.use(createHealthRouter({ pool, version: PACKAGE_VERSION }));
   router.use(metrics.router({ pool, token: config.metricsBearerToken }));
   router.use(createPrivacyRouter({ config }));
+  router.use(createDiscoveryRouter({ pool }));
   router.use(createInteractionRouter({ config, pool, getProvider: () => holder.current, mailer }));
   router.get('/', (_req, res) => {
     res.redirect(302, `${config.basePath}/account`);

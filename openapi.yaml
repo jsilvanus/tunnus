@@ -39,6 +39,7 @@ tags:
   - name: keys
   - name: audit
   - name: clients
+  - name: services
 
 paths:
   /me:
@@ -767,6 +768,120 @@ paths:
               schema: { $ref: '#/components/schemas/Client' }
         default: { $ref: '#/components/responses/Error' }
 
+  /services:
+    get:
+      operationId: listServices
+      x-tunnus-cli: services list
+      tags: [services]
+      summary: List registered discovery services
+      description: Lists services registered in the discovery catalog.
+      parameters:
+        - name: include_disabled
+          in: query
+          schema: { type: boolean, default: false }
+        - name: type
+          in: query
+          schema: { type: string }
+        - name: venue
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Service' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      operationId: createService
+      x-tunnus-cli: services create
+      tags: [services]
+      summary: Create a discovery service
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Service' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /services/{serviceId}:
+    parameters:
+      - { $ref: '#/components/parameters/ServiceId' }
+    get:
+      operationId: getService
+      x-tunnus-cli: services get
+      tags: [services]
+      summary: Get a discovery service
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Service' }
+        default: { $ref: '#/components/responses/Error' }
+    put:
+      operationId: putService
+      x-tunnus-cli: services put
+      tags: [services]
+      summary: Create or replace a discovery service
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceCreate' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Service' }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Service' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      operationId: updateService
+      x-tunnus-cli: services update
+      tags: [services]
+      summary: Update a discovery service
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceUpdate' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Service' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: deleteService
+      x-tunnus-cli: services delete
+      x-tunnus-destructive: true
+      tags: [services]
+      summary: Delete a discovery service
+      responses:
+        '204':
+          description: Deleted
+        default: { $ref: '#/components/responses/Error' }
+
 components:
   securitySchemes:
     adminToken:
@@ -807,6 +922,16 @@ components:
         minLength: 1
         maxLength: 100
         pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$'
+    ServiceId:
+      name: serviceId
+      in: path
+      required: true
+      description: Unique service identifier
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+        pattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
     Limit:
       name: limit
       in: query
@@ -1375,3 +1500,100 @@ components:
           type: boolean
           default: false
           description: Revoke existing grants and tokens for this client
+
+    ServiceAuth:
+      type: object
+      required: [type]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [none, api_key, bearer, oidc]
+        client_id: { type: string }
+        scopes:
+          type: array
+          items: { type: string }
+        audience: { type: string }
+        header_name: { type: string }
+
+    Service:
+      type: object
+      required:
+        [
+          id,
+          name,
+          type,
+          venue,
+          endpoint_url,
+          auth,
+          capabilities,
+          metadata,
+          disabled,
+          created_at,
+          updated_at,
+        ]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        name: { type: string }
+        type: { type: string }
+        venue: { type: string }
+        endpoint_url: { type: string }
+        url: { type: string }
+        auth: { $ref: '#/components/schemas/ServiceAuth' }
+        capabilities:
+          type: array
+          items: { type: string }
+        metadata: { type: object }
+        disabled: { type: boolean }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+
+    ServiceCreate:
+      type: object
+      required: [id, name, type, venue, endpoint_url]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        type:
+          type: string
+          pattern: '^[a-z0-9_-]{1,32}$'
+        venue:
+          type: string
+          pattern: '^[a-z0-9_-]{1,32}$'
+        endpoint_url: { type: string }
+        auth: { $ref: '#/components/schemas/ServiceAuth' }
+        capabilities:
+          type: array
+          items: { type: string }
+        metadata: { type: object }
+        disabled: { type: boolean }
+
+    ServiceUpdate:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        type:
+          type: string
+          pattern: '^[a-z0-9_-]{1,32}$'
+        venue:
+          type: string
+          pattern: '^[a-z0-9_-]{1,32}$'
+        endpoint_url: { type: string }
+        auth: { $ref: '#/components/schemas/ServiceAuth' }
+        capabilities:
+          type: array
+          items: { type: string }
+        metadata: { type: object }
+        disabled: { type: boolean }

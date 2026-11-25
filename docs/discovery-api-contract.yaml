@@ -1,0 +1,484 @@
+openapi: 3.1.0
+info:
+  title: Tunnus Service Discovery & Registry API
+  version: 1.0.0
+  description: |
+    Central Service Discovery and Catalog contract for Riihimäen seurakunta applications,
+    APIs, and edge Pi-ecosystem instances.
+
+    Managed within Tunnus, serving two primary interfaces:
+    1. Public / Consumer Discovery API (`/api/v1/discovery`): Flat list and filtered queries
+       for client applications (such as Canva plugin, web apps, signage clients).
+    2. Admin Management API (`/admin/api/v1/services`): Full CRUD for parish administrators
+       and AI agents via `tunnus` CLI and `tunnus-mcp`.
+  license:
+    name: EUPL-1.2
+
+servers:
+  - url: '{issuer}'
+    variables:
+      issuer:
+        default: https://tunnus.riihimaenseurakunta.fi
+
+paths:
+  # ============================================================================
+  # 1. CLIENT DISCOVERY ENDPOINTS (Consumer / Frontend / Plugins)
+  # ============================================================================
+
+  /api/v1/discovery:
+    get:
+      operationId: getDiscoveryServices
+      summary: Discover active services and endpoints
+      description: |
+        Returns active services registered in the parish catalog.
+        Clients can optionally filter by service `type`, `venue`, or requested `capability`.
+      security: []  # Public or optionally Bearer authenticated
+      parameters:
+        - name: type
+          in: query
+          required: false
+          description: Filter by service type (e.g. `piprogram`, `pigateway`, `signage`, `anno`)
+          schema:
+            type: string
+        - name: venue
+          in: query
+          required: false
+          description: Filter by venue or location (e.g. `keskuskirkko`, `kappeli`, `parish-wide`)
+          schema:
+            type: string
+        - name: capability
+          in: query
+          required: false
+          description: Filter by required capability (e.g. `slides`, `camera_control`)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of discovered services matching the criteria
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscoveryResponse'
+              example:
+                updated_at: '2026-11-25T15:00:00Z'
+                services:
+                  - id: keskuskirkko-piprogram
+                    name: Keskuskirkko — Sali (Pi Program)
+                    type: piprogram
+                    venue: keskuskirkko
+                    url: https://gateway.keskuskirkko.riihimaenseurakunta.fi:8443/program
+                    auth:
+                      type: api_key
+                      header_name: X-API-Key
+                    capabilities: [slides, stage_display, ftb, shutter]
+                    metadata:
+                      pipeline: primary
+                      display_targets: [projector_left, projector_right, side_screen]
+                  - id: sissi-signage
+                    name: Kyltti / Sissi Infonäytöt
+                    type: signage
+                    venue: parish-wide
+                    url: https://kehitys.riihimaenseurakunta.fi/sissi
+                    auth:
+                      type: oidc
+                      client_id: canva-sissi-publisher
+                      scopes: [signage:write]
+                    capabilities: [screen_push, playlist_management]
+                    metadata:
+                      default_view: parish_bulletin
+        default:
+          $ref: '#/components/responses/Error'
+
+  /api/v1/discovery/{type}:
+    get:
+      operationId: getDiscoveryServicesByType
+      summary: Discover services by specific type
+      description: Shortcut to list only services belonging to a specific type (e.g. `/api/v1/discovery/piprogram`).
+      security: []
+      parameters:
+        - name: type
+          in: path
+          required: true
+          description: Service type name
+          schema:
+            type: string
+        - name: venue
+          in: query
+          required: false
+          description: Optional venue filter
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Filtered service list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscoveryResponse'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ============================================================================
+  # 2. ADMIN REGISTRY MANAGEMENT (CLI, Admin API & MCP)
+  # ============================================================================
+
+  /admin/api/v1/services:
+    get:
+      operationId: listAdminServices
+      x-tunnus-cli: services list
+      summary: List all registered services in catalog
+      description: Lists all services including disabled and maintenance services.
+      security:
+        - adminToken: []
+      parameters:
+        - name: include_disabled
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: venue
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of registered services
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Service'
+        default:
+          $ref: '#/components/responses/Error'
+
+    post:
+      operationId: createAdminService
+      x-tunnus-cli: services create
+      summary: Register a new service endpoint
+      description: Adds a new application or Pi-service endpoint to the central discovery catalog.
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceCreateInput'
+      responses:
+        '201':
+          description: Service successfully registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /admin/api/v1/services/{serviceId}:
+    parameters:
+      - name: serviceId
+        in: path
+        required: true
+        description: Unique slug ID of the service (e.g. `keskuskirkko-piprogram`)
+        schema:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
+    get:
+      operationId: getAdminService
+      x-tunnus-cli: services get
+      summary: Get details of a registered service
+      security:
+        - adminToken: []
+      responses:
+        '200':
+          description: Service details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        default:
+          $ref: '#/components/responses/Error'
+
+    put:
+      operationId: putAdminService
+      x-tunnus-cli: services put
+      summary: Create or replace a registered service
+      description: Idempotent create or replace.
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceCreateInput'
+      responses:
+        '200':
+          description: Service updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '201':
+          description: Service created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        default:
+          $ref: '#/components/responses/Error'
+
+    patch:
+      operationId: updateAdminService
+      x-tunnus-cli: services update
+      summary: Update fields of a registered service
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceUpdateInput'
+      responses:
+        '200':
+          description: Updated service record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        default:
+          $ref: '#/components/responses/Error'
+
+    delete:
+      operationId: deleteAdminService
+      x-tunnus-cli: services delete
+      x-tunnus-destructive: true
+      summary: Delete a registered service from catalog
+      security:
+        - adminToken: []
+      responses:
+        '204':
+          description: Service deleted
+        default:
+          $ref: '#/components/responses/Error'
+
+# ==============================================================================
+# COMPONENTS & SCHEMAS
+# ==============================================================================
+
+components:
+  securitySchemes:
+    adminToken:
+      type: http
+      scheme: bearer
+      description: Opaque Tunnus admin token (`tun_...`)
+
+  responses:
+    Error:
+      description: Standard API error shape
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error, message]
+            additionalProperties: false
+            properties:
+              error:
+                type: string
+                example: not_found
+              message:
+                type: string
+                example: Service not found
+
+  schemas:
+    DiscoveryResponse:
+      type: object
+      required: [updated_at, services]
+      additionalProperties: false
+      properties:
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp of latest catalog modification
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiscoveredService'
+
+    DiscoveredService:
+      type: object
+      required: [id, name, type, venue, url]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          example: keskuskirkko-piprogram
+        name:
+          type: string
+          example: Keskuskirkko — Sali (Pi Program)
+        type:
+          type: string
+          example: piprogram
+        venue:
+          type: string
+          example: keskuskirkko
+        url:
+          type: string
+          format: uri
+          example: https://gateway.keskuskirkko.riihimaenseurakunta.fi:8443/program
+        auth:
+          $ref: '#/components/schemas/ServiceAuth'
+        capabilities:
+          type: array
+          items: { type: string }
+          example: [slides, stage_display, ftb, shutter]
+        metadata:
+          type: object
+          additionalProperties: true
+          example:
+            pipeline: primary
+            display_targets: [projector_left, projector_right]
+
+    ServiceAuth:
+      type: object
+      required: [type]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [none, api_key, bearer, oidc]
+          example: api_key
+        client_id:
+          type: string
+          description: OIDC client identifier if auth type is oidc
+          example: canva-pieco-app
+        scopes:
+          type: array
+          items: { type: string }
+          example: [program:write]
+        audience:
+          type: string
+          example: https://keskuskirkko.riihimaenseurakunta.fi
+        header_name:
+          type: string
+          description: Header name for api_key or custom bearer tokens
+          example: X-API-Key
+
+    Service:
+      type: object
+      required: [id, name, type, venue, url, disabled, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          example: keskuskirkko-piprogram
+        name:
+          type: string
+          example: Keskuskirkko — Sali (Pi Program)
+        type:
+          type: string
+          example: piprogram
+        venue:
+          type: string
+          example: keskuskirkko
+        url:
+          type: string
+          format: uri
+        auth:
+          $ref: '#/components/schemas/ServiceAuth'
+        capabilities:
+          type: array
+          items: { type: string }
+        metadata:
+          type: object
+          additionalProperties: true
+        disabled:
+          type: boolean
+          default: false
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ServiceCreateInput:
+      type: object
+      required: [id, name, type, venue, url]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
+          example: keskuskirkko-piprogram
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: Keskuskirkko — Sali (Pi Program)
+        type:
+          type: string
+          pattern: '^[a-z0-9_-]{1,32}$'
+          example: piprogram
+        venue:
+          type: string
+          pattern: '^[a-z0-9_-]{1,32}$'
+          example: keskuskirkko
+        url:
+          type: string
+          format: uri
+          example: https://gateway.keskuskirkko.riihimaenseurakunta.fi:8443/program
+        auth:
+          $ref: '#/components/schemas/ServiceAuth'
+        capabilities:
+          type: array
+          items: { type: string }
+        metadata:
+          type: object
+          additionalProperties: true
+        disabled:
+          type: boolean
+          default: false
+
+    ServiceUpdateInput:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        type:
+          type: string
+          pattern: '^[a-z0-9_-]{1,32}$'
+        venue:
+          type: string
+          pattern: '^[a-z0-9_-]{1,32}$'
+        url:
+          type: string
+          format: uri
+        auth:
+          $ref: '#/components/schemas/ServiceAuth'
+        capabilities:
+          type: array
+          items: { type: string }
+        metadata:
+          type: object
+          additionalProperties: true
+        disabled:
+          type: boolean

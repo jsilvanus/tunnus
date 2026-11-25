@@ -17,8 +17,21 @@ export function esc(s) {
 export function layout({ config, locale }, title, body) {
   const { brand } = config;
   const privacyUrl = brand.privacyNoticeUrl || `${config.issuer}/privacy`;
+  const footerLinks = [`<a href="${esc(privacyUrl)}">${esc(t(locale, 'footer_privacy'))}</a>`];
+  if (brand.termsUrl) {
+    footerLinks.push(`<a href="${esc(brand.termsUrl)}">${esc(t(locale, 'footer_terms'))}</a>`);
+  }
+  if (brand.supportUrl) {
+    footerLinks.push(`<a href="${esc(brand.supportUrl)}">${esc(t(locale, 'footer_support'))}</a>`);
+  }
+  const faviconHtml = brand.faviconUrl
+    ? `\n<link rel="icon" href="${esc(brand.faviconUrl)}">`
+    : brand.logoUrl
+      ? `\n<link rel="icon" href="${esc(brand.logoUrl)}">`
+      : '';
   return `<!doctype html>
 <html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="${esc(brand.color)}">${faviconHtml}
 <title>${esc(title)} · ${esc(brand.name)}</title>
 <style>body{font:16px system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem}
 button{background:${esc(brand.color)};color:#fff;border:0;padding:.6rem 1rem;border-radius:.3rem;font:inherit;cursor:pointer}
@@ -28,10 +41,15 @@ button.secondary{background:none;color:inherit;text-decoration:underline;padding
 input{font:inherit;padding:.5rem;width:100%;box-sizing:border-box;margin:.4rem 0 1rem}.err{color:#b00020}
 .code{font-size:2rem;letter-spacing:.3rem;font-weight:600}
 table{border-collapse:collapse;width:100%}th,td{text-align:left;vertical-align:top;padding:.3rem .4rem;border-bottom:1px solid #ddd;overflow-wrap:anywhere}
-footer{margin-top:3rem;font-size:.875rem}footer a{color:inherit}</style>
-</head><body>${brand.logoUrl ? `<img src="${esc(brand.logoUrl)}" alt="" height="56">` : ''}
-<h1>${esc(brand.name)}</h1>${body}
-<footer><p><a href="${esc(privacyUrl)}">${esc(t(locale, 'footer_privacy'))}</a></p></footer>
+.tagline{color:#475569;margin:-0.5rem 0 1.5rem;font-size:1rem}
+footer{margin-top:3rem;font-size:.875rem}footer a{color:inherit}
+footer .links a+a{margin-left:.75rem}
+.copyright{color:#64748b;margin:0 0 .5rem}</style>
+</head><body>${brand.logoUrl ? `<img src="${esc(brand.logoUrl)}" alt="${esc(brand.name)}" height="56">` : ''}
+<h1>${esc(brand.name)}</h1>${brand.tagline ? `<p class="tagline">${esc(brand.tagline)}</p>` : ''}${body}
+<footer>
+${brand.copyright ? `<p class="copyright">${esc(brand.copyright)}</p>\n` : ''}<p class="links">${footerLinks.join(' · ')}</p>
+</footer>
 </body></html>`;
 }
 

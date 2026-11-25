@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { findLocalLogoFile, findLocalFaviconFile } from './branding.js';
 
 /**
  * @param {NodeJS.ProcessEnv} env
@@ -164,7 +166,7 @@ function validateSecrets(env) {
 /**
  * Load and validate the whole configuration from the environment.
  * @param {NodeJS.ProcessEnv} [env]
- * @param {{ readFile?: (path: string, encoding: 'utf8') => string }} [io] injectable file reader
+ * @param {{ readFile?: (path: string, encoding: 'utf8') => string, existsSync?: (p: string) => boolean }} [io] injectable file system helpers
  */
 export function loadConfig(env = process.env, io = {}) {
   const readFile =
@@ -235,7 +237,7 @@ export function loadConfig(env = process.env, io = {}) {
     sessionTtlDays: int(env, 'SESSION_TTL_DAYS', 14),
     totpEmailReverifyDays: int(env, 'TOTP_EMAIL_REVERIFY_DAYS', 7),
     mailProvider: /** @type {'console' | 'smtp' | 'brevo'} */ (env.MAIL_PROVIDER ?? 'console'),
-    mailFrom: env.MAIL_FROM ?? 'Tunnus <no-reply@localhost>',
+    mailFrom: env.MAIL_FROM ?? `${env.BRAND_NAME ?? 'Tunnus'} <no-reply@localhost>`,
     smtpUrl: env.SMTP_URL ?? '',
     brevoApiKey: env.BREVO_API_KEY ?? '',
     brevoTemplates: loadBrevoTemplates(env, env.MAIL_PROVIDER ?? 'console'),
@@ -250,12 +252,35 @@ export function loadConfig(env = process.env, io = {}) {
       contact: env.CONTROLLER_CONTACT ?? '',
       url: env.CONTROLLER_URL ?? '',
     },
-    brand: {
-      name: env.BRAND_NAME ?? 'Tunnus',
-      logoUrl: env.BRAND_LOGO_URL ?? '',
-      color: env.BRAND_COLOR ?? '#1f4e79',
-      privacyNoticeUrl: env.PRIVACY_NOTICE_URL ?? '',
-    },
+    brand: (() => {
+      let logoUrl = env.BRAND_LOGO_URL ?? '';
+      if (!logoUrl) {
+        const logoFile = findLocalLogoFile(env.BRAND_LOGO_FILE, io);
+        if (logoFile) {
+          const ext = path.extname(logoFile).toLowerCase() || '.png';
+          logoUrl = `${basePath}/logo${ext}`;
+        }
+      }
+      let faviconUrl = (env.BRAND_FAVICON_URL ?? '').trim();
+      if (!faviconUrl) {
+        const faviconFile = findLocalFaviconFile(env.BRAND_FAVICON_FILE, io);
+        if (faviconFile) {
+          const ext = path.extname(faviconFile).toLowerCase() || '.ico';
+          faviconUrl = `${basePath}/favicon${ext}`;
+        }
+      }
+      return {
+        name: env.BRAND_NAME ?? 'Tunnus',
+        logoUrl,
+        color: env.BRAND_COLOR ?? '#1f4e79',
+        privacyNoticeUrl: env.PRIVACY_NOTICE_URL ?? '',
+        copyright: (env.BRAND_COPYRIGHT ?? env.BRAND_COPYRIGHT_NOTICE ?? '').trim(),
+        tagline: (env.BRAND_TAGLINE ?? env.BRAND_SUBTITLE ?? '').trim(),
+        termsUrl: (env.BRAND_TERMS_URL ?? env.TERMS_URL ?? '').trim(),
+        supportUrl: (env.BRAND_SUPPORT_URL ?? env.SUPPORT_URL ?? '').trim(),
+        faviconUrl,
+      };
+    })(),
     defaultLocale: /** @type {'fi' | 'sv' | 'en'} */ (env.DEFAULT_LOCALE ?? 'en'),
     retention: loadRetentionConfig(env),
     keyRetiredGraceDays: int(env, 'KEY_RETIRED_GRACE_DAYS', 7),

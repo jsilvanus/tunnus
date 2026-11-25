@@ -129,6 +129,23 @@ Add the new secret at the front of `COOKIE_SECRETS` and keep the old one after
 it. Restart, and once sessions signed with the old secret have expired (after
 `SESSION_TTL_DAYS`, 14 by default), remove it.
 
+### Branding and theming
+
+All pages (login, code prompt, TOTP setup, account portal, errors, and privacy) and emails support local branding and customization via environment variables:
+
+| Variable | Notes |
+| --- | --- |
+| `BRAND_NAME` | Service display name in titles, headings, and emails (default `Tunnus`). When `MAIL_FROM` is unset, default sender name uses `BRAND_NAME`. |
+| `BRAND_TAGLINE` | Optional subtitle or description shown under the brand heading. |
+| `BRAND_COPYRIGHT` | Copyright notice shown in the page footer and transactional email footers (e.g. `© 2026 Example Organisation`). `BRAND_COPYRIGHT_NOTICE` is also accepted. |
+| `BRAND_COLOR` | Brand color (hex code) used for buttons and the browser `theme-color` meta tag (default `#1f4e79`). |
+| `BRAND_LOGO_FILE` | Path to a local logo file (`.png`, `.svg`, `.jpg`, `.webp`). If unset, checks `./logo.png`, `./logo.svg`, and `/app/logo.png`. Automatically served at `<issuer>/logo<ext>`. |
+| `BRAND_LOGO_URL` | Public URL for the logo. If unset and a local logo file exists, automatically points to `<issuer>/logo<ext>`. |
+| `BRAND_FAVICON_URL` | Optional URL for browser favicon. If unset and local `favicon.ico` or logo exists, automatically linked. |
+| `BRAND_TERMS_URL` | Optional URL for Terms of Service link in the page footer. |
+| `BRAND_SUPPORT_URL` | Optional URL for Support / Contact link in the page footer. |
+| `PRIVACY_NOTICE_URL` | Custom external privacy notice URL; if unset, links to the built-in `<issuer>/privacy`. |
+
 ### Brevo templates
 
 With `MAIL_PROVIDER=brevo`, the sign-in code mail and the inactivity warning can be
