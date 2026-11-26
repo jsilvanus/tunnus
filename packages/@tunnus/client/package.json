@@ -1,0 +1,35 @@
+{
+  "name": "@tunnus/client",
+  "version": "0.1.0",
+  "description": "Unified SDK for Tunnus (Push, Notify, Discovery, and Auth)",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./push": "./src/push.js",
+    "./notify": "./src/notify.js",
+    "./discovery": "./src/discovery.js",
+    "./sw": "./src/sw.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "dependencies": {
+    "@tunnus/push": "^0.1.0",
+    "@tunnus/notify": "^0.1.0",
+    "@tunnus/discovery": "^0.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "tunnus",
+    "oidc",
+    "notifications",
+    "web-push",
+    "webhooks"
+  ],
+  "author": "Juha Itäleino <jsilvanus@gmail.com>",
+  "license": "MIT"
+}

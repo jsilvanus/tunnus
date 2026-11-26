@@ -1,0 +1,25 @@
+{
+  "name": "@tunnus/discovery",
+  "version": "0.1.0",
+  "description": "Zero-dependency service discovery and heartbeat client for Tunnus",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "tunnus",
+    "service-discovery",
+    "heartbeat",
+    "microservices"
+  ],
+  "author": "Juha Itäleino <jsilvanus@gmail.com>",
+  "license": "MIT"
+}
