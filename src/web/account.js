@@ -17,7 +17,13 @@ import {
   verifyUserTotp,
 } from '../totp.js';
 import { sendInBackground } from './interactions.js';
-import { accountCodePage, accountLoginPage, accountPage, accountTotpSetupPage, mcpIdentityPage } from './pages.js';
+import {
+  accountCodePage,
+  accountLoginPage,
+  accountPage,
+  accountTotpSetupPage,
+  mcpIdentityPage,
+} from './pages.js';
 import {
   clearDbMcpCommitList,
   executeDbMcpCommitList,
@@ -137,6 +143,10 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
 
   router.use('/account', (_req, res, next) => {
     res.set('Cache-Control', 'no-store');
+    res.set(
+      'Content-Security-Policy',
+      "default-src 'none'; script-src 'unsafe-inline' 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src https: data:; base-uri 'none'; frame-ancestors 'none'",
+    );
     next();
   });
 
@@ -226,8 +236,27 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
       return void res.send(accountLoginPage(ctx, `${config.basePath}/account/login`));
     }
     let mcp = null;
+    let mcpIdentities = null;
+    let tokenRowsForMcp = { rows: [] };
+    let userRowsForMcp = { rows: [] };
+    let subjectsForMcp = [];
     if (acct.user.groups.includes('admin')) {
-      const state = await getDbMcpState(pool, acct.user.id);
+      const [state, subjects, tokenRows, userRows] = await Promise.all([
+        getDbMcpState(pool, acct.user.id),
+        listMcpIdentityDirectory(pool, acct.user.id),
+        pool.query(
+          `SELECT id, label FROM admin_tokens
+            WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
+            ORDER BY label`,
+          [acct.user.id],
+        ),
+        pool.query(
+          "SELECT id, email, display_name FROM users WHERE status = 'active' ORDER BY display_name, email LIMIT 500",
+        ),
+      ]);
+      tokenRowsForMcp = tokenRows;
+      userRowsForMcp = userRows;
+      subjectsForMcp = subjects;
       mcp = {
         fixedTimeRunning: isFixedTimeRunning(state),
         remainingMinutes: Math.ceil(getFixedTimeRemainingMs(state) / 60000),
@@ -286,13 +315,17 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
         WHERE owner_user_id = $1 AND auth_kind = 'oauth'`,
       [acct.user.id],
     );
-    const identityModes = new Map(identitySettingRows.map((r) => [r.auth_client_key, r.identity_mode]));
+    const identityModes = new Map(
+      identitySettingRows.map((r) => [r.auth_client_key, r.identity_mode]),
+    );
 
     let adminUsers = null;
     const isAdmin = acct.user.groups.includes('admin') || Boolean(acct.user.is_admin);
     if (isAdmin) {
       const [userListRes, allGroupsRes] = await Promise.all([
-        pool.query("SELECT id, email, display_name FROM users WHERE status = 'active' ORDER BY display_name, email LIMIT 500"),
+        pool.query(
+          "SELECT id, email, display_name FROM users WHERE status = 'active' ORDER BY display_name, email LIMIT 500",
+        ),
         pool.query('SELECT id, name FROM groups ORDER BY name LIMIT 200'),
       ]);
       const userList = userListRes.rows;
@@ -300,7 +333,8 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
 
       let selectedUser = null;
       let selectedGroups = [];
-      const userSearch = typeof req.query.user_search === 'string' ? req.query.user_search.trim() : '';
+      const userSearch =
+        typeof req.query.user_search === 'string' ? req.query.user_search.trim() : '';
       if (userSearch) {
         const { rows } = await pool.query(
           'SELECT id, email, display_name FROM users WHERE email = $1 OR id::text = $1 OR display_name ILIKE $2 LIMIT 1',
@@ -356,6 +390,35 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
       }
     }
 
+    if (acct.user.groups.includes('admin')) {
+      const oauthClients = new Map();
+      for (const row of grantRows) {
+        const payload = row.payload ?? {};
+        const clientId = payload.clientId;
+        const scopes = String(payload.openid?.scope ?? '').split(/\s+/);
+        if (clientId && scopes.includes('mcp')) {
+          oauthClients.set(clientId, payload.clientName || clientId);
+        }
+      }
+      const clients = [
+        ...Array.from(oauthClients, ([auth_client_key, label]) => ({
+          auth_kind: 'oauth',
+          auth_client_key,
+          label: 'OAuth: ' + label,
+        })),
+        ...tokenRowsForMcp.rows.map((r) => ({
+          auth_kind: 'admin_token',
+          auth_client_key: r.id,
+          label: 'Admin token: ' + r.label,
+        })),
+      ];
+      mcpIdentities = {
+        subjects: subjectsForMcp,
+        clients,
+        users: userRowsForMcp.rows,
+      };
+    }
+
     res.send(
       accountPage(ctx, {
         basePath: config.basePath,
@@ -374,6 +437,7 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
         apps,
         appNotice: typeof req.query.app_notice === 'string' ? req.query.app_notice : undefined,
         mcp,
+        mcpIdentities,
         adminUsers,
       }),
     );
@@ -462,10 +526,10 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
 
     const { rows: gRows } = await pool.query('SELECT id FROM groups WHERE name = $1', [groupName]);
     if (gRows[0]) {
-      await pool.query(
-        'DELETE FROM user_groups WHERE user_id = $1 AND group_id = $2',
-        [userId, gRows[0].id],
-      );
+      await pool.query('DELETE FROM user_groups WHERE user_id = $1 AND group_id = $2', [
+        userId,
+        gRows[0].id,
+      ]);
       await audit(pool, {
         actorUserId: acct.user.id,
         action: 'admin.revoke_membership',
@@ -482,14 +546,16 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
     );
   });
 
-
   router.get('/account/mcp-identities', async (req, res) => {
     const acct = await resolveAccount(req, res);
     if (!acct) return void res.redirect(302, `${config.basePath}/account`);
-    if (!acct.user.groups.includes('admin')) return void res.status(403).send('Forbidden: admin only');
+    if (!acct.user.groups.includes('admin'))
+      return void res.status(403).send('Forbidden: admin only');
     const [subjects, userRows, grantRows, tokenRows] = await Promise.all([
       listMcpIdentityDirectory(pool, acct.user.id),
-      pool.query("SELECT id, email, display_name FROM users WHERE status = 'active' ORDER BY display_name, email LIMIT 500"),
+      pool.query(
+        "SELECT id, email, display_name FROM users WHERE status = 'active' ORDER BY display_name, email LIMIT 500",
+      ),
       pool.query(
         `SELECT payload FROM oidc_payloads
           WHERE type = 'Grant' AND payload->>'accountId' = $1
@@ -508,49 +574,65 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
       const payload = row.payload ?? {};
       const clientId = payload.clientId;
       const scopes = String(payload.openid?.scope ?? '').split(/\s+/);
-      if (clientId && scopes.includes('mcp')) oauthClients.set(clientId, payload.clientName || clientId);
+      if (clientId && scopes.includes('mcp'))
+        oauthClients.set(clientId, payload.clientName || clientId);
     }
     const { rows: modeRows } = await pool.query(
       'SELECT auth_kind, auth_client_key, identity_mode FROM mcp_client_settings WHERE owner_user_id = $1',
       [acct.user.id],
     );
-    const modes = new Map(modeRows.map((r) => [r.auth_kind + '|' + r.auth_client_key, r.identity_mode]));
+    const modes = new Map(
+      modeRows.map((r) => [r.auth_kind + '|' + r.auth_client_key, r.identity_mode]),
+    );
     const clients = [
       ...Array.from(oauthClients, ([auth_client_key, label]) => ({
-        auth_kind: 'oauth', auth_client_key, label: 'OAuth: ' + label,
+        auth_kind: 'oauth',
+        auth_client_key,
+        label: 'OAuth: ' + label,
         identity_mode: modes.get('oauth|' + auth_client_key) ?? 'open',
       })),
       ...tokenRows.rows.map((r) => ({
-        auth_kind: 'admin_token', auth_client_key: r.id, label: 'Admin token: ' + r.label,
+        auth_kind: 'admin_token',
+        auth_client_key: r.id,
+        label: 'Admin token: ' + r.label,
         identity_mode: modes.get('admin_token|' + r.id) ?? 'open',
       })),
     ];
-    res.send(mcpIdentityPage(ctxOf(req), {
-      basePath: config.basePath,
-      csrf: acct.csrf,
-      subjects,
-      users: userRows.rows,
-      clients,
-      notice: typeof req.query.notice === 'string' ? req.query.notice : undefined,
-      error: typeof req.query.error === 'string' ? req.query.error : undefined,
-    }));
+    res.send(
+      mcpIdentityPage(ctxOf(req), {
+        basePath: config.basePath,
+        csrf: acct.csrf,
+        subjects,
+        users: userRows.rows,
+        clients,
+        notice: typeof req.query.notice === 'string' ? req.query.notice : undefined,
+        error: typeof req.query.error === 'string' ? req.query.error : undefined,
+      }),
+    );
   });
 
   const identityRedirect = (res, message, isError = false) => {
     const key = isError ? 'error' : 'notice';
-    res.redirect(302, `${config.basePath}/account/mcp-identities?${key}=${encodeURIComponent(message)}`);
+    res.redirect(
+      302,
+      `${config.basePath}/account/mcp-identities?${key}=${encodeURIComponent(message)}`,
+    );
   };
 
   router.post('/account/mcp/identity-mode', form, async (req, res) => {
     const acct = await resolveAccount(req, res);
     if (!acct) return void res.redirect(302, `${config.basePath}/account`);
-    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) return void res.status(403).send('Invalid CSRF token');
-    if (!acct.user.groups.includes('admin')) return void res.status(403).send('Forbidden: admin only');
+    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf))
+      return void res.status(403).send('Invalid CSRF token');
+    if (!acct.user.groups.includes('admin'))
+      return void res.status(403).send('Forbidden: admin only');
     const authKind = String(req.body.authKind ?? 'oauth');
-    if (authKind !== 'oauth' && authKind !== 'admin_token') return void identityRedirect(res, 'Invalid MCP credential type.', true);
+    if (authKind !== 'oauth' && authKind !== 'admin_token')
+      return void identityRedirect(res, 'Invalid MCP credential type.', true);
     const authClientKey = String(req.body.authClientKey ?? req.body.clientId ?? '').trim();
     const mode = String(req.body.mode ?? '');
-    if (mode !== 'open' && mode !== 'pseudo_ref' && mode !== 'ref_only') return void identityRedirect(res, 'Invalid MCP identity mode.', true);
+    if (mode !== 'open' && mode !== 'pseudo_ref' && mode !== 'ref_only')
+      return void identityRedirect(res, 'Invalid MCP identity mode.', true);
     let credentialExists = false;
     if (authKind === 'oauth' && authClientKey) {
       const grant = await pool.query(
@@ -581,14 +663,22 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
   router.post('/account/mcp-identities/subjects', form, async (req, res) => {
     const acct = await resolveAccount(req, res);
     if (!acct) return void res.redirect(302, `${config.basePath}/account`);
-    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) return void res.status(403).send('Invalid CSRF token');
-    if (!acct.user.groups.includes('admin')) return void res.status(403).send('Forbidden: admin only');
+    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf))
+      return void res.status(403).send('Invalid CSRF token');
+    if (!acct.user.groups.includes('admin'))
+      return void res.status(403).send('Forbidden: admin only');
     const userId = String(req.body.userId ?? '').trim();
     const label = String(req.body.label ?? '').trim();
     try {
-      if (userId) await ensureMcpIdentitySubjectForOwner(pool, { ownerUserId: acct.user.id, userId });
+      if (userId)
+        await ensureMcpIdentitySubjectForOwner(pool, { ownerUserId: acct.user.id, userId });
       else if (label) await createMcpIdentitySubject(pool, { ownerUserId: acct.user.id, label });
-      else return void identityRedirect(res, 'Select a Tunnus user or provide an external identity label.', true);
+      else
+        return void identityRedirect(
+          res,
+          'Select a Tunnus user or provide an external identity label.',
+          true,
+        );
       identityRedirect(res, 'Identity subject created or already present.');
     } catch {
       identityRedirect(res, 'Could not create identity subject. It may already exist.', true);
@@ -598,8 +688,10 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
   router.post('/account/mcp-identities/pseudonyms', form, async (req, res) => {
     const acct = await resolveAccount(req, res);
     if (!acct) return void res.redirect(302, `${config.basePath}/account`);
-    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) return void res.status(403).send('Invalid CSRF token');
-    if (!acct.user.groups.includes('admin')) return void res.status(403).send('Forbidden: admin only');
+    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf))
+      return void res.status(403).send('Invalid CSRF token');
+    if (!acct.user.groups.includes('admin'))
+      return void res.status(403).send('Forbidden: admin only');
     try {
       await addMcpPseudonym(pool, {
         ownerUserId: acct.user.id,
@@ -616,33 +708,49 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
   router.post('/account/mcp-identities/pseudonyms/delete', form, async (req, res) => {
     const acct = await resolveAccount(req, res);
     if (!acct) return void res.redirect(302, `${config.basePath}/account`);
-    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) return void res.status(403).send('Invalid CSRF token');
-    if (!acct.user.groups.includes('admin')) return void res.status(403).send('Forbidden: admin only');
-    await deleteMcpPseudonym(pool, { ownerUserId: acct.user.id, pseudonymId: String(req.body.pseudonymId ?? '') });
+    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf))
+      return void res.status(403).send('Invalid CSRF token');
+    if (!acct.user.groups.includes('admin'))
+      return void res.status(403).send('Forbidden: admin only');
+    await deleteMcpPseudonym(pool, {
+      ownerUserId: acct.user.id,
+      pseudonymId: String(req.body.pseudonymId ?? ''),
+    });
     identityRedirect(res, 'Pseudonym deleted.');
   });
 
   router.post('/account/mcp-identities/link', form, async (req, res) => {
     const acct = await resolveAccount(req, res);
     if (!acct) return void res.redirect(302, `${config.basePath}/account`);
-    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) return void res.status(403).send('Invalid CSRF token');
-    if (!acct.user.groups.includes('admin')) return void res.status(403).send('Forbidden: admin only');
+    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf))
+      return void res.status(403).send('Invalid CSRF token');
+    if (!acct.user.groups.includes('admin'))
+      return void res.status(403).send('Forbidden: admin only');
     const linked = await linkMcpIdentitySubject(pool, {
       ownerUserId: acct.user.id,
       subjectId: String(req.body.subjectId ?? ''),
       userId: String(req.body.userId ?? ''),
     });
-    identityRedirect(res, linked ? 'Identity linked.' : 'Could not link identity. Check that neither side is already linked.', !linked);
+    identityRedirect(
+      res,
+      linked
+        ? 'Identity linked.'
+        : 'Could not link identity. Check that neither side is already linked.',
+      !linked,
+    );
   });
 
   router.post('/account/mcp-identities/refs', form, async (req, res) => {
     const acct = await resolveAccount(req, res);
     if (!acct) return void res.redirect(302, `${config.basePath}/account`);
-    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) return void res.status(403).send('Invalid CSRF token');
-    if (!acct.user.groups.includes('admin')) return void res.status(403).send('Forbidden: admin only');
+    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf))
+      return void res.status(403).send('Invalid CSRF token');
+    if (!acct.user.groups.includes('admin'))
+      return void res.status(403).send('Forbidden: admin only');
     try {
       const [authKind, authClientKey] = String(req.body.credential ?? '').split('|');
-      if ((authKind !== 'oauth' && authKind !== 'admin_token') || !authClientKey) throw new Error('Invalid credential');
+      if ((authKind !== 'oauth' && authKind !== 'admin_token') || !authClientKey)
+        throw new Error('Invalid credential');
       if (authKind === 'oauth') {
         const grant = await pool.query(
           `SELECT 1 FROM oidc_payloads
@@ -662,32 +770,182 @@ export function createAccountRouter({ config, pool, getProvider, mailer, callAdm
       }
       let subjectId = String(req.body.subjectId ?? '').trim();
       const userId = String(req.body.userId ?? '').trim();
-      if (userId) subjectId = (await ensureMcpIdentitySubjectForOwner(pool, { ownerUserId: acct.user.id, userId })).id;
+      if (userId)
+        subjectId = (
+          await ensureMcpIdentitySubjectForOwner(pool, { ownerUserId: acct.user.id, userId })
+        ).id;
       if (!subjectId) throw new Error('Select an identity subject');
       await createMcpIdentityRefForSubject(pool, {
-        ownerUserId: acct.user.id, authKind, authClientKey, subjectId,
+        ownerUserId: acct.user.id,
+        authKind,
+        authClientKey,
+        subjectId,
       });
       identityRedirect(res, 'Temporary reference created (expires in 24 hours).');
     } catch {
-      identityRedirect(res, 'Could not create reference. Check the selected subject and MCP credential.', true);
+      identityRedirect(
+        res,
+        'Could not create reference. Check the selected subject and MCP credential.',
+        true,
+      );
+    }
+  });
+
+  router.post('/account/mcp-identities/refs/bulk', form, express.json(), async (req, res) => {
+    const acct = await resolveAccount(req, res);
+    if (!acct) return void res.redirect(302, `${config.basePath}/account`);
+    const sentCsrf = req.body?.csrf || req.headers['x-csrf-token'];
+    if (!validCsrf(config.keyEncryptionSecret, acct.sid, sentCsrf)) {
+      if (req.headers.accept?.includes('application/json') || req.is('json')) {
+        return void res.status(403).json({ ok: false, error: 'Invalid CSRF token' });
+      }
+      return void res.status(403).send('Invalid CSRF token');
+    }
+    if (!acct.user.groups.includes('admin')) {
+      if (req.headers.accept?.includes('application/json') || req.is('json')) {
+        return void res.status(403).json({ ok: false, error: 'Forbidden: admin only' });
+      }
+      return void res.status(403).send('Forbidden: admin only');
+    }
+
+    try {
+      const [authKind, authClientKey] = String(req.body.credential ?? '').split('|');
+      if ((authKind !== 'oauth' && authKind !== 'admin_token') || !authClientKey) {
+        throw new Error('Invalid credential');
+      }
+      if (authKind === 'oauth') {
+        const grant = await pool.query(
+          `SELECT 1 FROM oidc_payloads
+            WHERE type = 'Grant' AND payload->>'accountId' = $1 AND payload->>'clientId' = $2
+              AND (expires_at IS NULL OR expires_at > now())
+              AND ('mcp' = ANY(string_to_array(payload->'openid'->>'scope', ' ')))
+            LIMIT 1`,
+          [acct.user.id, authClientKey],
+        );
+        if (!grant.rows[0]) throw new Error('Unknown client');
+      } else {
+        const token = await pool.query(
+          'SELECT 1 FROM admin_tokens WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL AND expires_at > now()',
+          [authClientKey, acct.user.id],
+        );
+        if (!token.rows[0]) throw new Error('Unknown token');
+      }
+
+      let rawInputs = req.body.inputs;
+      if (typeof rawInputs === 'string') {
+        rawInputs = rawInputs
+          .split(/[\r\n,;]+/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+      if (!Array.isArray(rawInputs) || rawInputs.length === 0) {
+        throw new Error('No users or emails provided');
+      }
+
+      const results = [];
+      for (const item of rawInputs) {
+        let text = String(item || '').trim();
+        if (!text) continue;
+        const parenMatch = /\(([^)]+@[^)]+)\)/.exec(text);
+        if (parenMatch) text = parenMatch[1].trim();
+        const angleMatch = /<([^>]+@[^>]+)>/.exec(text);
+        if (angleMatch) text = angleMatch[1].trim();
+        if (text.includes(' · ')) {
+          const parts = text.split(' · ');
+          text = parts[parts.length - 1].trim();
+        }
+
+        const userQuery = await pool.query(
+          `SELECT id, email, display_name FROM users
+            WHERE (id::text = $1 OR lower(email) = lower($1)) AND status = 'active'
+            LIMIT 1`,
+          [text],
+        );
+        let subjectId;
+        let displayName = text;
+        let email = text;
+        if (userQuery.rows[0]) {
+          const u = userQuery.rows[0];
+          displayName = u.display_name || u.email;
+          email = u.email;
+          const subj = await ensureMcpIdentitySubjectForOwner(pool, {
+            ownerUserId: acct.user.id,
+            userId: u.id,
+          });
+          subjectId = subj.id;
+        } else {
+          const subj = await createMcpIdentitySubject(pool, {
+            ownerUserId: acct.user.id,
+            label: text,
+          });
+          subjectId = subj.id;
+        }
+
+        const ref = await createMcpIdentityRefForSubject(pool, {
+          ownerUserId: acct.user.id,
+          authKind,
+          authClientKey,
+          subjectId,
+        });
+
+        results.push({
+          email,
+          name: displayName,
+          ref: `ref:${ref.handle}`,
+          expires_at: ref.expires_at,
+        });
+      }
+
+      if (req.headers.accept?.includes('application/json') || req.is('json')) {
+        return void res.json({
+          ok: true,
+          count: results.length,
+          refs: results.map((r) => r.ref),
+          items: results,
+          text: results.map((r) => r.ref).join('\n'),
+        });
+      }
+
+      identityRedirect(res, `Created ${results.length} temporary reference(s).`);
+    } catch (err) {
+      if (req.headers.accept?.includes('application/json') || req.is('json')) {
+        return void res
+          .status(400)
+          .json({ ok: false, error: err.message || 'Could not create references' });
+      }
+      identityRedirect(res, err.message || 'Could not create references', true);
     }
   });
 
   router.post('/account/mcp-identities/refs/extend', form, async (req, res) => {
     const acct = await resolveAccount(req, res);
     if (!acct) return void res.redirect(302, `${config.basePath}/account`);
-    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) return void res.status(403).send('Invalid CSRF token');
-    if (!acct.user.groups.includes('admin')) return void res.status(403).send('Forbidden: admin only');
-    const updated = await extendMcpIdentityRef(pool, { ownerUserId: acct.user.id, refId: String(req.body.refId ?? '') });
-    identityRedirect(res, updated ? 'Reference extended by 24 hours.' : 'Only active references can be extended.', !updated);
+    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf))
+      return void res.status(403).send('Invalid CSRF token');
+    if (!acct.user.groups.includes('admin'))
+      return void res.status(403).send('Forbidden: admin only');
+    const updated = await extendMcpIdentityRef(pool, {
+      ownerUserId: acct.user.id,
+      refId: String(req.body.refId ?? ''),
+    });
+    identityRedirect(
+      res,
+      updated ? 'Reference extended by 24 hours.' : 'Only active references can be extended.',
+      !updated,
+    );
   });
 
   router.post('/account/mcp-identities/refs/revoke', form, async (req, res) => {
     const acct = await resolveAccount(req, res);
     if (!acct) return void res.redirect(302, `${config.basePath}/account`);
-    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf)) return void res.status(403).send('Invalid CSRF token');
-    if (!acct.user.groups.includes('admin')) return void res.status(403).send('Forbidden: admin only');
-    const revoked = await revokeMcpIdentityRef(pool, { ownerUserId: acct.user.id, refId: String(req.body.refId ?? '') });
+    if (!validCsrf(config.keyEncryptionSecret, acct.sid, req.body.csrf))
+      return void res.status(403).send('Invalid CSRF token');
+    if (!acct.user.groups.includes('admin'))
+      return void res.status(403).send('Forbidden: admin only');
+    const revoked = await revokeMcpIdentityRef(pool, {
+      ownerUserId: acct.user.id,
+      refId: String(req.body.refId ?? ''),
+    });
     identityRedirect(res, revoked ? 'Reference revoked.' : 'Reference not found.', !revoked);
   });
 

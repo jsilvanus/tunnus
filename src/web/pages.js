@@ -505,15 +505,27 @@ ${commitControls}
         const mcpBadge = app.isMcp
           ? ` <span style="display:inline-block;padding:.1rem .3rem;border-radius:.2rem;font-size:.7rem;font-weight:600;background:#e0f2fe;color:#0369a1">MCP</span>`
           : '';
-        const identityForm = app.isMcp ? (
-          '<form method="post" action="' + esc(p.basePath) + '/account/mcp/identity-mode" style="margin-top:.5rem">' +
-          '<input type="hidden" name="csrf" value="' + esc(p.csrf) + '"><input type="hidden" name="clientId" value="' + esc(app.clientId) + '">' +
-          '<label style="font-size:.8rem">MCP identity mode<select name="mode">' +
-          '<option value="open" ' + ((app.identityMode || 'open') === 'open' ? 'selected' : '') + '>Open</option>' +
-          '<option value="pseudo_ref" ' + (app.identityMode === 'pseudo_ref' ? 'selected' : '') + '>Pseudonym + refs</option>' +
-          '<option value="ref_only" ' + (app.identityMode === 'ref_only' ? 'selected' : '') + '>Refs only</option>' +
-          '</select></label><button class="alt" style="padding:.25rem .5rem;font-size:.8rem">Save</button></form>'
-        ) : '';
+        const identityForm = app.isMcp
+          ? '<form method="post" action="' +
+            esc(p.basePath) +
+            '/account/mcp/identity-mode" style="margin-top:.5rem">' +
+            '<input type="hidden" name="csrf" value="' +
+            esc(p.csrf) +
+            '"><input type="hidden" name="clientId" value="' +
+            esc(app.clientId) +
+            '">' +
+            '<label style="font-size:.8rem">MCP identity mode<select name="mode">' +
+            '<option value="open" ' +
+            ((app.identityMode || 'open') === 'open' ? 'selected' : '') +
+            '>Open</option>' +
+            '<option value="pseudo_ref" ' +
+            (app.identityMode === 'pseudo_ref' ? 'selected' : '') +
+            '>Pseudonym + refs</option>' +
+            '<option value="ref_only" ' +
+            (app.identityMode === 'ref_only' ? 'selected' : '') +
+            '>Refs only</option>' +
+            '</select></label><button class="alt" style="padding:.25rem .5rem;font-size:.8rem">Save</button></form>'
+          : '';
         const resourcesStr =
           app.resources && app.resources.length > 0
             ? `<br><small style="color:#555"><em>${esc(t(locale, 'account_apps_resources'))}:</em> ${esc(app.resources.join(', '))}</small>`
@@ -555,6 +567,106 @@ ${appsContent}
 <p><a href="${esc(p.basePath)}/account/mcp-identities">Manage MCP pseudonyms and temporary references</a></p>
 </div>`;
 
+  let mcpIdentitiesSection = '';
+  if (p.mcpIdentities) {
+    const { subjects = [], users = [], clients = [] } = p.mcpIdentities;
+    const clientOptions = clients
+      .map(
+        (c) =>
+          `<option value="${esc(c.auth_kind)}|${esc(c.auth_client_key)}">${esc(c.label)}</option>`,
+      )
+      .join('');
+    const userDatalistOptions = users
+      .map(
+        (u) =>
+          `<option value="${esc(u.email)}">${esc(u.display_name || u.email)} (${esc(u.email)})</option>`,
+      )
+      .join('\n');
+
+    const allActiveRefs = [];
+    for (const s of subjects) {
+      const sLabel = s.display_name || s.label || s.email || s.subject_id;
+      for (const r of s.refs || []) {
+        if (!r.revoked_at && new Date(r.expires_at).getTime() > Date.now()) {
+          allActiveRefs.push({
+            subjectLabel: sLabel,
+            handle: r.handle,
+            client: r.auth_client_key || r.auth_kind,
+            expiresAt: r.expires_at,
+          });
+        }
+      }
+    }
+
+    let activeRefsTable;
+    if (allActiveRefs.length === 0) {
+      activeRefsTable = `<p style="color:#64748b;font-size:.85rem;margin:.5rem 0">No active temporary references.</p>`;
+    } else {
+      const rows = allActiveRefs
+        .map((r) => {
+          const diffHours = Math.max(
+            0,
+            Math.round((new Date(r.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60)),
+          );
+          return `<tr>
+<td><strong>${esc(r.subjectLabel)}</strong></td>
+<td><code>ref:${esc(r.handle)}</code> <button type="button" class="copy-btn" data-copy="ref:${esc(r.handle)}" aria-label="Copy reference ref:${esc(r.handle)}">📋 Copy</button></td>
+<td><small style="color:#64748b">${esc(r.client)}</small></td>
+<td><small style="color:#64748b">${diffHours}h left</small></td>
+</tr>`;
+        })
+        .join('\n');
+
+      activeRefsTable = `<div style="overflow-x:auto;margin-top:.5rem">
+<table class="compact-table">
+<thead><tr><th>Subject</th><th>Reference</th><th>Credential</th><th>Expires</th></tr></thead>
+<tbody>${rows}</tbody>
+</table>
+</div>`;
+    }
+
+    mcpIdentitiesSection = `<div style="border:1px solid #ccc;border-radius:.4rem;padding:1rem;margin-top:1.5rem">
+<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
+<h3 style="margin:0">MCP Pseudonyms & References</h3>
+<a href="${esc(p.basePath)}/account/mcp-identities" style="font-size:.85rem;font-weight:600">Open full MCP directory & settings →</a>
+</div>
+<p style="color:#64748b;font-size:.85rem;margin:.4rem 0">Private pseudonyms and temporary 24-hour references for MCP clients (e.g. ChatGPT, Claude).</p>
+
+<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:.4rem;padding:1rem;margin:1rem 0">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.5rem">
+    <strong style="font-size:1rem">⚡ Quick Bulk Reference Creator</strong>
+    <span style="font-size:.8rem;color:#64748b">Type user emails/names & press Enter</span>
+  </div>
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem">
+    <div style="flex:1;min-width:14rem">
+      <label style="font-size:.8rem;color:#475569;display:block;margin-bottom:.2rem">MCP Credential</label>
+      <select id="quick-bulk-cred" style="width:100%;padding:.45rem;font:inherit;border-radius:.3rem;border:1px solid #cbd5e1">${clientOptions}</select>
+    </div>
+    <div style="flex:2;min-width:18rem">
+      <label style="font-size:.8rem;color:#475569;display:block;margin-bottom:.2rem">Type User (Enter to add)</label>
+      <input id="quick-bulk-input" list="quick-bulk-users-dl" placeholder="Type email or name, then press Enter..." autocomplete="off" style="margin:0;padding:.45rem;border:1px solid #cbd5e1;border-radius:.3rem">
+      <datalist id="quick-bulk-users-dl">${userDatalistOptions}</datalist>
+    </div>
+  </div>
+  <div style="margin-bottom:.6rem">
+    <label style="font-size:.8rem;color:#475569;display:block;margin-bottom:.2rem">Recipients / Subjects to create refs for:</label>
+    <div id="quick-bulk-chips" class="chip-container">
+      <span style="color:#94a3b8;font-size:.85rem;padding:.2rem">Type email or name, then press Enter...</span>
+    </div>
+  </div>
+  <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+    <button type="button" id="quick-bulk-btn" data-csrf="${esc(p.csrf)}" data-basepath="${esc(p.basePath)}" style="background:#0284c7;font-weight:600;padding:.5rem 1rem">⚡ Create Refs & Copy to Clipboard</button>
+    <button type="button" id="quick-bulk-clear" class="secondary" style="font-size:.85rem">Clear</button>
+    <span style="font-size:.75rem;color:#64748b">Shortcut: press <strong>Ctrl+Enter</strong> anytime</span>
+  </div>
+  <div id="quick-bulk-banner" style="display:none;margin-top:.75rem;padding:.75rem;border-radius:.35rem;background:#dcfce7;border:1px solid #86efac;color:#166534"></div>
+</div>
+
+<h4 style="margin:1rem 0 .4rem 0">Active References (${allActiveRefs.length})</h4>
+${activeRefsTable}
+</div>`;
+  }
+
   let adminSection = '';
   if (p.adminUsers) {
     const { adminUsers } = p;
@@ -566,7 +678,10 @@ ${appsContent}
       : '';
 
     const userDatalistOptions = (adminUsers.users || [])
-      .map((u) => `<option value="${esc(u.email)}">${esc(u.display_name || u.email)} (${esc(u.email)})</option>`)
+      .map(
+        (u) =>
+          `<option value="${esc(u.email)}">${esc(u.display_name || u.email)} (${esc(u.email)})</option>`,
+      )
       .join('\n');
 
     const allGroupDatalistOptions = (adminUsers.allGroups || [])
@@ -670,13 +785,15 @@ ${groupsRow}
 </table>
 ${p.isActive !== false ? appsSection : ''}
 ${p.isActive !== false ? mcpSection : ''}
+${p.isActive !== false ? mcpIdentitiesSection : ''}
 ${p.isActive !== false ? adminSection : ''}
 <div class="actions" style="margin-top:1.5rem">
 ${totpAction}
 <form method="post" action="${esc(p.basePath)}/account/logout">
 <input type="hidden" name="csrf" value="${esc(p.csrf)}">
 <button class="secondary">${esc(t(locale, 'logout_title'))}</button></form>
-</div>`,
+</div>
+${p.mcpIdentities ? mcpScriptAndStyles() : ''}`,
   );
 }
 
@@ -709,81 +826,547 @@ ${errorLine(p.error ?? '', ctx)}<button>${esc(t(locale, 'continue'))}</button></
   );
 }
 
+function mcpScriptAndStyles() {
+  return `<style>
+body{max-width:64rem}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.copy-btn{font:inherit;padding:.2rem .45rem;font-size:.75rem;border-radius:.25rem;cursor:pointer;background:#e2e8f0;color:#1e293b;border:1px solid #cbd5e1;display:inline-flex;align-items:center;gap:.25rem;transition:background-color .15s,border-color .15s}
+.copy-btn:hover{background:#cbd5e1}
+.copy-btn.copied{background:#dcfce7 !important;color:#166534 !important;border-color:#86efac !important}
+.chip-container{display:flex;flex-wrap:wrap;gap:.35rem;padding:.4rem;border:1px solid #cbd5e1;border-radius:.35rem;background:#fff;min-height:2.5rem;align-items:center}
+.chip{display:inline-flex;align-items:center;gap:.35rem;background:#f1f5f9;color:#334155;padding:.2rem .5rem;border-radius:1rem;font-size:.8rem;border:1px solid #e2e8f0}
+.chip-remove{background:none;border:none;color:#94a3b8;cursor:pointer;padding:0;font-size:.95rem;line-height:1}
+.chip-remove:hover{color:#dc2626}
+.compact-table{width:100%;border-collapse:collapse;font-size:.85rem;margin-top:.5rem}
+.compact-table th{background:#f8fafc;border-bottom:2px solid #cbd5e1;padding:.4rem .5rem;text-align:left}
+.compact-table td{padding:.4rem .5rem;border-bottom:1px solid #e2e8f0;vertical-align:top}
+.badge{display:inline-block;padding:.15rem .35rem;border-radius:.25rem;font-size:.7rem;font-weight:600}
+.badge-blue{background:#e0f2fe;color:#0369a1}
+.badge-gray{background:#f1f5f9;color:#475569}
+.badge-green{background:#dcfce7;color:#166534}
+</style>
+<div id="a11y-status" role="status" aria-live="polite" class="sr-only"></div>
+<script>
+(function() {
+  function copyToClipboard(text, btn) {
+    if (!text) return;
+    function announce() {
+      if (btn) {
+        var orig = btn.innerHTML;
+        btn.classList.add('copied');
+        btn.innerHTML = '✓ Copied!';
+        setTimeout(function() {
+          btn.classList.remove('copied');
+          btn.innerHTML = orig;
+        }, 2000);
+      }
+      var live = document.getElementById('a11y-status');
+      if (live) live.textContent = 'Copied to clipboard: ' + text.slice(0, 60);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(announce).catch(function() { fallback(text, announce); });
+    } else {
+      fallback(text, announce);
+    }
+  }
+  function fallback(text, cb) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { document.execCommand('copy'); if (cb) cb(); } catch(e) {}
+    document.body.removeChild(ta);
+  }
+
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.copy-btn');
+    if (btn && btn.dataset.copy) {
+      copyToClipboard(btn.dataset.copy, btn);
+    }
+  });
+
+  var bulkInput = document.getElementById('quick-bulk-input');
+  var chipsBox = document.getElementById('quick-bulk-chips');
+  var btnCreate = document.getElementById('quick-bulk-btn');
+  var btnClear = document.getElementById('quick-bulk-clear');
+  var banner = document.getElementById('quick-bulk-banner');
+  var credSelect = document.getElementById('quick-bulk-cred');
+  var chips = [];
+
+  function renderChips() {
+    if (!chipsBox) return;
+    chipsBox.innerHTML = '';
+    if (chips.length === 0) {
+      var ph = document.createElement('span');
+      ph.style.color = '#94a3b8';
+      ph.style.fontSize = '.85rem';
+      ph.style.padding = '.2rem';
+      ph.textContent = 'Type email or name, then press Enter...';
+      chipsBox.appendChild(ph);
+      return;
+    }
+    chips.forEach(function(val, idx) {
+      var chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.textContent = val + ' ';
+      var rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'chip-remove';
+      rm.textContent = '✕';
+      rm.setAttribute('aria-label', 'Remove ' + val);
+      rm.onclick = function() { chips.splice(idx, 1); renderChips(); };
+      chip.appendChild(rm);
+      chipsBox.appendChild(chip);
+    });
+  }
+
+  function addChipFromInput() {
+    if (!bulkInput) return;
+    var val = bulkInput.value.trim().replace(/^[,\\s]+|[,\\s]+$/g, '');
+    if (val && chips.indexOf(val) === -1) {
+      chips.push(val);
+      bulkInput.value = '';
+      renderChips();
+    }
+  }
+
+  if (bulkInput) {
+    bulkInput.addEventListener('keydown', function(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        triggerBulkCreate();
+      } else if (e.key === 'Enter' || e.key === ',') {
+        e.preventDefault();
+        addChipFromInput();
+      } else if (e.key === 'Backspace' && !bulkInput.value && chips.length > 0) {
+        chips.pop();
+        renderChips();
+      }
+    });
+  }
+
+  if (btnClear) {
+    btnClear.addEventListener('click', function() {
+      chips = [];
+      if (bulkInput) bulkInput.value = '';
+      renderChips();
+      if (banner) banner.style.display = 'none';
+    });
+  }
+
+  function triggerBulkCreate() {
+    addChipFromInput();
+    if (chips.length === 0) {
+      alert('Please enter at least one email or identity identifier.');
+      if (bulkInput) bulkInput.focus();
+      return;
+    }
+    var cred = credSelect ? credSelect.value : '';
+    if (!cred) {
+      alert('Please select an MCP credential.');
+      return;
+    }
+    var csrf = btnCreate ? btnCreate.dataset.csrf : '';
+    var basePath = (btnCreate ? btnCreate.dataset.basepath : '') || '';
+    if (btnCreate) {
+      btnCreate.disabled = true;
+      btnCreate.textContent = '⏳ Creating refs...';
+    }
+    fetch(basePath + '/account/mcp-identities/refs/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ csrf: csrf, credential: cred, inputs: chips })
+    })
+    .then(function(res) {
+      return res.json().then(function(data) {
+        if (!res.ok) throw new Error(data.error || 'Server error');
+        return data;
+      });
+    })
+    .then(function(data) {
+      copyToClipboard(data.text);
+      if (banner) {
+        banner.style.display = 'block';
+        banner.innerHTML = '<strong>✓ Created ' + data.count + ' reference(s) and copied to clipboard!</strong><br>' +
+          '<small>Paste them directly into your client. They expire in 24 hours.</small><br>' +
+          '<textarea readonly style="width:100%;margin-top:.4rem;padding:.4rem;font-size:.8rem;height:4rem;box-sizing:border-box" onclick="this.select()">' +
+          data.text + '</textarea>';
+      }
+      chips = [];
+      renderChips();
+      if (window.location.pathname.indexOf('/mcp-identities') !== -1) {
+        setTimeout(function() { window.location.reload(); }, 1500);
+      }
+    })
+    .catch(function(err) {
+      alert('Error creating references: ' + err.message);
+    })
+    .finally(function() {
+      if (btnCreate) {
+        btnCreate.disabled = false;
+        btnCreate.textContent = '⚡ Create Refs & Copy to Clipboard';
+      }
+    });
+  }
+
+  if (btnCreate) {
+    btnCreate.addEventListener('click', triggerBulkCreate);
+  }
+
+  var dirFilter = document.getElementById('dir-filter');
+  if (dirFilter) {
+    dirFilter.addEventListener('input', function() {
+      var q = dirFilter.value.toLowerCase().trim();
+      var rows = document.querySelectorAll('.dir-row');
+      rows.forEach(function(row) {
+        var s = (row.dataset.search || '').toLowerCase();
+        row.style.display = (!q || s.indexOf(q) !== -1) ? '' : 'none';
+      });
+    });
+  }
+
+  var checkAll = document.getElementById('check-all');
+  var bulkBar = document.getElementById('bulk-action-bar');
+  var selCount = document.getElementById('selected-rows-count');
+  var btnCopySelRefs = document.getElementById('btn-copy-selected-refs');
+  var btnCopySelPseudos = document.getElementById('btn-copy-selected-pseudos');
+  var btnClearSel = document.getElementById('btn-clear-selection');
+
+  function updateBulkSelection() {
+    var checked = document.querySelectorAll('.row-select:checked');
+    if (selCount) selCount.textContent = checked.length;
+    if (bulkBar) {
+      bulkBar.style.display = checked.length > 0 ? 'flex' : 'none';
+    }
+  }
+
+  if (checkAll) {
+    checkAll.addEventListener('change', function() {
+      var visibleRows = document.querySelectorAll(".dir-row:not([style*='display: none']) .row-select");
+      visibleRows.forEach(function(cb) { cb.checked = checkAll.checked; });
+      updateBulkSelection();
+    });
+  }
+
+  document.addEventListener('change', function(e) {
+    if (e.target.classList.contains('row-select')) {
+      updateBulkSelection();
+    }
+  });
+
+  if (btnClearSel) {
+    btnClearSel.addEventListener('click', function() {
+      document.querySelectorAll('.row-select').forEach(function(cb) { cb.checked = false; });
+      if (checkAll) checkAll.checked = false;
+      updateBulkSelection();
+    });
+  }
+
+  if (btnCopySelRefs) {
+    btnCopySelRefs.addEventListener('click', function() {
+      var items = [];
+      document.querySelectorAll('.row-select:checked').forEach(function(cb) {
+        var r = cb.dataset.refs;
+        if (r) {
+          r.split(',').forEach(function(h) { if (h && items.indexOf(h) === -1) items.push(h); });
+        }
+      });
+      if (items.length === 0) {
+        alert('No active references in selected rows.');
+        return;
+      }
+      copyToClipboard(items.join('\\n'), btnCopySelRefs);
+    });
+  }
+
+  if (btnCopySelPseudos) {
+    btnCopySelPseudos.addEventListener('click', function() {
+      var items = [];
+      document.querySelectorAll('.row-select:checked').forEach(function(cb) {
+        var p = cb.dataset.pseudos;
+        if (p) {
+          p.split(',').forEach(function(h) { if (h && items.indexOf(h) === -1) items.push(h); });
+        }
+      });
+      if (items.length === 0) {
+        alert('No pseudonyms in selected rows.');
+        return;
+      }
+      copyToClipboard(items.join('\\n'), btnCopySelPseudos);
+    });
+  }
+})();
+</script>`;
+}
+
 /**
  * Owner-facing MCP identity directory and temporary reference management.
  * @param {Ctx} ctx
  * @param {{ basePath: string, csrf: string, subjects: any[], users: any[], clients: any[], notice?: string, error?: string }} p
  */
 export function mcpIdentityPage(ctx, p) {
-  const userOptions = p.users.map((u) =>
-    `<option value="${esc(u.id)}">${esc(u.display_name || u.email)} · ${esc(u.email)}</option>`,
-  ).join('');
-  const subjectOptions = p.subjects.map((s) =>
-    `<option value="${esc(s.subject_id)}">${esc(s.display_name || s.label || s.email || s.subject_id)}</option>`,
-  ).join('');
-  const clientSettings = p.clients.map((c) =>
-    '<form method="post" action="' + esc(p.basePath) + '/account/mcp/identity-mode" style="margin:.5rem 0;padding:.5rem;border:1px solid #ddd">' +
-    '<input type="hidden" name="csrf" value="' + esc(p.csrf) + '">' +
-    '<input type="hidden" name="authKind" value="' + esc(c.auth_kind) + '">' +
-    '<input type="hidden" name="authClientKey" value="' + esc(c.auth_client_key) + '">' +
-    '<strong>' + esc(c.label) + '</strong><br><select name="mode">' +
-    '<option value="open" ' + ((c.identity_mode || 'open') === 'open' ? 'selected' : '') + '>Open</option>' +
-    '<option value="pseudo_ref" ' + (c.identity_mode === 'pseudo_ref' ? 'selected' : '') + '>Pseudonym + refs</option>' +
-    '<option value="ref_only" ' + (c.identity_mode === 'ref_only' ? 'selected' : '') + '>Refs only</option>' +
-    '</select> <button class="alt">Save mode</button></form>'
-  ).join('');
-  const clientOptions = p.clients.map((c) =>
-    `<option value="${esc(c.auth_kind)}|${esc(c.auth_client_key)}">${esc(c.label)}</option>`,
-  ).join('');
+  const userOptions = p.users
+    .map(
+      (u) =>
+        `<option value="${esc(u.id)}">${esc(u.display_name || u.email)} · ${esc(u.email)}</option>`,
+    )
+    .join('');
+  const userDatalistOptions = p.users
+    .map(
+      (u) =>
+        `<option value="${esc(u.email)}">${esc(u.display_name || u.email)} (${esc(u.email)})</option>`,
+    )
+    .join('\n');
+  const subjectOptions = p.subjects
+    .map(
+      (s) =>
+        `<option value="${esc(s.subject_id)}">${esc(s.display_name || s.label || s.email || s.subject_id)}</option>`,
+    )
+    .join('');
+  const clientSettings = p.clients
+    .map(
+      (c) =>
+        '<form method="post" action="' +
+        esc(p.basePath) +
+        '/account/mcp/identity-mode" style="margin:.5rem 0;padding:.5rem;border:1px solid #ddd;border-radius:.3rem">' +
+        '<input type="hidden" name="csrf" value="' +
+        esc(p.csrf) +
+        '">' +
+        '<input type="hidden" name="authKind" value="' +
+        esc(c.auth_kind) +
+        '">' +
+        '<input type="hidden" name="authClientKey" value="' +
+        esc(c.auth_client_key) +
+        '">' +
+        '<strong>' +
+        esc(c.label) +
+        '</strong><br><select name="mode" style="margin:.3rem 0;font:inherit">' +
+        '<option value="open" ' +
+        ((c.identity_mode || 'open') === 'open' ? 'selected' : '') +
+        '>Open</option>' +
+        '<option value="pseudo_ref" ' +
+        (c.identity_mode === 'pseudo_ref' ? 'selected' : '') +
+        '>Pseudonym + refs</option>' +
+        '<option value="ref_only" ' +
+        (c.identity_mode === 'ref_only' ? 'selected' : '') +
+        '>Refs only</option>' +
+        '</select> <button class="alt" style="padding:.3rem .6rem">Save mode</button></form>',
+    )
+    .join('');
+  const clientOptions = p.clients
+    .map(
+      (c) =>
+        `<option value="${esc(c.auth_kind)}|${esc(c.auth_client_key)}">${esc(c.label)}</option>`,
+    )
+    .join('');
 
-  const subjectCards = p.subjects.map((s) => {
-    const label = s.display_name || s.label || s.email || s.subject_id;
-    const aliases = (s.pseudonyms || []).map((a) => `<li><code>pseudo:${esc(a.pseudonym)}</code> ${a.is_preferred ? '<strong>(preferred)</strong>' : ''}
-<form method="post" action="${esc(p.basePath)}/account/mcp-identities/pseudonyms/delete" style="display:inline">
-<input type="hidden" name="csrf" value="${esc(p.csrf)}"><input type="hidden" name="pseudonymId" value="${esc(a.id)}">
-<button class="secondary">Delete</button></form></li>`).join('');
-    const refs = (s.refs || []).map((r) => {
-      const expired = r.revoked_at || new Date(r.expires_at).getTime() <= Date.now();
-      const scope = `${r.auth_kind}: ${r.auth_client_key}`;
-      return `<tr><td><code>ref:${esc(r.handle)}</code><br><small>${esc(scope)}</small></td>
-<td>${esc(new Date(r.expires_at).toLocaleString(ctx.locale))}${r.revoked_at ? ' · revoked' : expired ? ' · expired' : ''}</td>
-<td>${expired ? '' : `<form method="post" action="${esc(p.basePath)}/account/mcp-identities/refs/extend"><input type="hidden" name="csrf" value="${esc(p.csrf)}"><input type="hidden" name="refId" value="${esc(r.id)}"><button class="alt">Extend 24 h</button></form>
-<form method="post" action="${esc(p.basePath)}/account/mcp-identities/refs/revoke"><input type="hidden" name="csrf" value="${esc(p.csrf)}"><input type="hidden" name="refId" value="${esc(r.id)}"><button class="secondary">Revoke</button></form>`}</td></tr>`;
-    }).join('');
-    const linked = s.tunnus_user_id ? `<small>Linked Tunnus user: ${esc(s.email || s.tunnus_user_id)}</small>` : '<small>External identity (not linked)</small>';
-    const linkForm = !s.tunnus_user_id ? `<form method="post" action="${esc(p.basePath)}/account/mcp-identities/link">
-<input type="hidden" name="csrf" value="${esc(p.csrf)}"><input type="hidden" name="subjectId" value="${esc(s.subject_id)}">
-<label>Link to Tunnus user<select name="userId" required><option value="">Select user</option>${userOptions}</select></label><button class="alt">Link</button></form>` : '';
-    return `<section style="border:1px solid #ccc;border-radius:.4rem;padding:1rem;margin:1rem 0">
-<h3>${esc(label)}</h3>${linked}
-<h4>Pseudonyms</h4><ul>${aliases || '<li>None</li>'}</ul>
-<form method="post" action="${esc(p.basePath)}/account/mcp-identities/pseudonyms">
-<input type="hidden" name="csrf" value="${esc(p.csrf)}"><input type="hidden" name="subjectId" value="${esc(s.subject_id)}">
-<label>New pseudonym<input name="pseudonym" maxlength="100" required></label>
-<label><input type="checkbox" name="preferred" value="true"> Preferred output pseudonym</label><button>Add pseudonym</button></form>
-${linkForm}
-<h4>Temporary references</h4><table><thead><tr><th>Reference / client</th><th>Expires</th><th></th></tr></thead><tbody>${refs || '<tr><td colspan="3">No references</td></tr>'}</tbody></table>
-</section>`;
-  }).join('');
+  const directoryRows = p.subjects
+    .map((s) => {
+      const label = s.display_name || s.label || s.email || s.subject_id;
+      const aliases = s.pseudonyms || [];
+      const activeRefs = (s.refs || []).filter(
+        (r) => !r.revoked_at && new Date(r.expires_at).getTime() > Date.now(),
+      );
+      const searchTerms = [
+        label,
+        s.email || '',
+        s.tunnus_user_id || '',
+        ...aliases.map((a) => a.pseudonym),
+        ...activeRefs.map((r) => r.handle),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
 
-  const notice = p.notice ? `<p style="color:#155724">${esc(p.notice)}</p>` : '';
-  const error = p.error ? `<p class="err">${esc(p.error)}</p>` : '';
-  return layout(ctx, 'MCP pseudonyms and references', `<p><a href="${esc(p.basePath)}/account">← Account</a></p>
-<h2>MCP pseudonyms and references</h2>
-<p>Pseudonyms and temporary references are private to this account. References are scoped to one MCP credential and expire after 24 hours unless extended.</p>
+      const refsHandles = activeRefs.map((r) => `ref:${r.handle}`).join(',');
+      const pseudoHandles = aliases.map((a) => `pseudo:${a.pseudonym}`).join(',');
+
+      const pseudonymsHtml = aliases.length
+        ? aliases
+            .map(
+              (a) => `
+      <div style="display:inline-flex;align-items:center;gap:.25rem;margin:.1rem .25rem .1rem 0;background:#f1f5f9;border:1px solid #e2e8f0;padding:.15rem .35rem;border-radius:.25rem;font-size:.8rem">
+        <code>pseudo:${esc(a.pseudonym)}</code>
+        ${a.is_preferred ? '<span title="Preferred" style="font-size:.7rem;color:#0284c7;font-weight:bold">★</span>' : ''}
+        <button type="button" class="copy-btn" data-copy="pseudo:${esc(a.pseudonym)}" aria-label="Copy pseudo:${esc(a.pseudonym)}" style="padding:.1rem .25rem;font-size:.7rem">📋</button>
+        <form method="post" action="${esc(p.basePath)}/account/mcp-identities/pseudonyms/delete" style="display:inline;margin:0">
+          <input type="hidden" name="csrf" value="${esc(p.csrf)}"><input type="hidden" name="pseudonymId" value="${esc(a.id)}">
+          <button class="secondary" style="padding:0;color:#94a3b8;font-size:.8rem;text-decoration:none" title="Delete pseudonym">✕</button>
+        </form>
+      </div>`,
+            )
+            .join('')
+        : '<span style="color:#94a3b8;font-size:.8rem">—</span>';
+
+      const refsHtml = activeRefs.length
+        ? activeRefs
+            .map((r) => {
+              const diffHours = Math.max(
+                0,
+                Math.round((new Date(r.expires_at).getTime() - Date.now()) / (1000 * 60 * 60)),
+              );
+              return `
+      <div style="display:inline-flex;align-items:center;gap:.35rem;margin:.15rem 0;background:#f8fafc;border:1px solid #cbd5e1;padding:.15rem .4rem;border-radius:.25rem;font-size:.8rem">
+        <code>ref:${esc(r.handle)}</code>
+        <button type="button" class="copy-btn" data-copy="ref:${esc(r.handle)}" aria-label="Copy reference ref:${esc(r.handle)}" style="padding:.1rem .35rem;font-size:.75rem">📋 Copy</button>
+        <span style="font-size:.75rem;color:#64748b">${esc(r.auth_client_key || r.auth_kind)} · ${diffHours}h left</span>
+        <form method="post" action="${esc(p.basePath)}/account/mcp-identities/refs/extend" style="display:inline;margin:0">
+          <input type="hidden" name="csrf" value="${esc(p.csrf)}"><input type="hidden" name="refId" value="${esc(r.id)}">
+          <button class="alt" style="padding:.1rem .3rem;font-size:.7rem" title="Extend 24 hours">+24h</button>
+        </form>
+        <form method="post" action="${esc(p.basePath)}/account/mcp-identities/refs/revoke" style="display:inline;margin:0">
+          <input type="hidden" name="csrf" value="${esc(p.csrf)}"><input type="hidden" name="refId" value="${esc(r.id)}">
+          <button class="secondary" style="padding:.1rem .2rem;font-size:.7rem;color:#dc2626;text-decoration:none" title="Revoke reference">Revoke</button>
+        </form>
+      </div>`;
+            })
+            .join('<br>')
+        : '<span style="color:#94a3b8;font-size:.8rem">—</span>';
+
+      const subjectBadge = s.tunnus_user_id
+        ? `<div style="font-size:.75rem;color:#64748b"><span class="badge badge-green">Linked</span> ${esc(s.email || s.tunnus_user_id)}</div>`
+        : `<div style="font-size:.75rem;color:#64748b"><span class="badge badge-gray">External</span></div>`;
+
+      return `<tr class="dir-row" data-search="${esc(searchTerms)}" data-refs="${esc(refsHandles)}" data-pseudos="${esc(pseudoHandles)}">
+<td style="text-align:center"><input type="checkbox" class="row-select" data-refs="${esc(refsHandles)}" data-pseudos="${esc(pseudoHandles)}" aria-label="Select ${esc(label)}"></td>
+<td><strong>${esc(label)}</strong>${subjectBadge}</td>
+<td>${pseudonymsHtml}</td>
+<td>${refsHtml}</td>
+<td style="text-align:right">
+<details style="display:inline-block;margin-right:.3rem">
+  <summary style="cursor:pointer;font-size:.75rem;color:#0284c7;font-weight:600">+ Pseudo</summary>
+  <form method="post" action="${esc(p.basePath)}/account/mcp-identities/pseudonyms" style="margin:.3rem 0;padding:.4rem;background:#fff;border:1px solid #cbd5e1;border-radius:.3rem;text-align:left">
+    <input type="hidden" name="csrf" value="${esc(p.csrf)}"><input type="hidden" name="subjectId" value="${esc(s.subject_id)}">
+    <input name="pseudonym" placeholder="New pseudonym" maxlength="100" required style="padding:.2rem;font-size:.75rem;margin:0 0 .3rem 0;width:100%;box-sizing:border-box">
+    <label style="font-size:.75rem;display:block;margin-bottom:.3rem"><input type="checkbox" name="preferred" value="true"> Preferred</label>
+    <button style="padding:.2rem .4rem;font-size:.75rem">Add</button>
+  </form>
+</details>
+${
+  !s.tunnus_user_id
+    ? `
+<details style="display:inline-block">
+  <summary style="cursor:pointer;font-size:.75rem;color:#0284c7;font-weight:600">Link User</summary>
+  <form method="post" action="${esc(p.basePath)}/account/mcp-identities/link" style="margin:.3rem 0;padding:.4rem;background:#fff;border:1px solid #cbd5e1;border-radius:.3rem;text-align:left">
+    <input type="hidden" name="csrf" value="${esc(p.csrf)}"><input type="hidden" name="subjectId" value="${esc(s.subject_id)}">
+    <select name="userId" required style="font-size:.75rem;margin:0 0 .3rem 0;width:100%"><option value="">Select user</option>${userOptions}</select>
+    <button class="alt" style="padding:.2rem .4rem;font-size:.75rem">Link</button>
+  </form>
+</details>
+`
+    : ''
+}
+</td>
+</tr>`;
+    })
+    .join('\n');
+
+  const notice = p.notice
+    ? `<p style="color:#0f5132;background:#d1e7dd;padding:.5rem;border-radius:.3rem;font-size:.9rem">${esc(p.notice)}</p>`
+    : '';
+  const error = p.error
+    ? `<p class="err" style="background:#f8d7da;padding:.5rem;border-radius:.3rem;font-size:.9rem">${esc(p.error)}</p>`
+    : '';
+
+  return layout(
+    ctx,
+    'MCP pseudonyms and references',
+    `<p><a href="${esc(p.basePath)}/account">← Back to Account</a></p>
+<h2>MCP Pseudonyms & References Directory</h2>
+<p style="color:#475569">Pseudonyms and temporary references are private to this account. References are scoped to one MCP credential and expire after 24 hours unless extended.</p>
 ${notice}${error}
-<section><h3>Add identity subject</h3>
-<form method="post" action="${esc(p.basePath)}/account/mcp-identities/subjects">
+
+<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:.4rem;padding:1rem;margin:1rem 0">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.5rem">
+    <strong style="font-size:1rem">⚡ Quick Bulk Reference Creator</strong>
+    <span style="font-size:.8rem;color:#64748b">Type user emails/names & press Enter</span>
+  </div>
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem">
+    <div style="flex:1;min-width:14rem">
+      <label style="font-size:.8rem;color:#475569;display:block;margin-bottom:.2rem">MCP Credential</label>
+      <select id="quick-bulk-cred" style="width:100%;padding:.45rem;font:inherit;border-radius:.3rem;border:1px solid #cbd5e1">${clientOptions}</select>
+    </div>
+    <div style="flex:2;min-width:18rem">
+      <label style="font-size:.8rem;color:#475569;display:block;margin-bottom:.2rem">Type User (Enter to add)</label>
+      <input id="quick-bulk-input" list="quick-bulk-users-dl" placeholder="Type email or name, then press Enter..." autocomplete="off" style="margin:0;padding:.45rem;border:1px solid #cbd5e1;border-radius:.3rem">
+      <datalist id="quick-bulk-users-dl">${userDatalistOptions}</datalist>
+    </div>
+  </div>
+  <div style="margin-bottom:.6rem">
+    <label style="font-size:.8rem;color:#475569;display:block;margin-bottom:.2rem">Recipients / Subjects to create refs for:</label>
+    <div id="quick-bulk-chips" class="chip-container">
+      <span style="color:#94a3b8;font-size:.85rem;padding:.2rem">Type email or name, then press Enter...</span>
+    </div>
+  </div>
+  <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+    <button type="button" id="quick-bulk-btn" data-csrf="${esc(p.csrf)}" data-basepath="${esc(p.basePath)}" style="background:#0284c7;font-weight:600;padding:.5rem 1rem">⚡ Create Refs & Copy to Clipboard</button>
+    <button type="button" id="quick-bulk-clear" class="secondary" style="font-size:.85rem">Clear</button>
+    <span style="font-size:.75rem;color:#64748b">Shortcut: press <strong>Ctrl+Enter</strong> anytime</span>
+  </div>
+  <div id="quick-bulk-banner" style="display:none;margin-top:.75rem;padding:.75rem;border-radius:.35rem;background:#dcfce7;border:1px solid #86efac;color:#166534"></div>
+</div>
+
+<div style="margin-top:1.5rem">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.5rem">
+    <h3 style="margin:0">Identity Directory (${p.subjects.length})</h3>
+    <input type="search" id="dir-filter" placeholder="🔍 Search directory..." style="max-width:18rem;margin:0;padding:.35rem .6rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.3rem">
+  </div>
+  
+  <div id="bulk-action-bar" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;padding:.4rem .75rem;border-radius:.35rem;margin-bottom:.75rem;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem">
+    <span style="font-weight:600;font-size:.85rem;color:#1e40af"><span id="selected-rows-count">0</span> row(s) selected</span>
+    <div style="display:flex;gap:.5rem;align-items:center">
+      <button type="button" class="copy-btn" id="btn-copy-selected-refs">📋 Copy Selected Active Refs</button>
+      <button type="button" class="copy-btn" id="btn-copy-selected-pseudos">📋 Copy Selected Pseudonyms</button>
+      <button type="button" class="secondary" id="btn-clear-selection" style="font-size:.8rem">Clear selection</button>
+    </div>
+  </div>
+
+  <div style="overflow-x:auto">
+    <table class="compact-table">
+      <thead>
+        <tr>
+          <th style="width:2rem;text-align:center"><input type="checkbox" id="check-all" aria-label="Select all rows"></th>
+          <th>Subject / Person</th>
+          <th>Pseudonyms</th>
+          <th>Active References (24 h)</th>
+          <th style="text-align:right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${directoryRows || '<tr><td colspan="5" style="text-align:center;color:#64748b;padding:1rem">No identity subjects yet.</td></tr>'}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<details style="border:1px solid #e2e8f0;border-radius:.4rem;padding:.75rem;margin-top:1.5rem">
+<summary style="cursor:pointer;font-weight:600">Add External / Custom Identity Subject</summary>
+<form method="post" action="${esc(p.basePath)}/account/mcp-identities/subjects" style="margin-top:.75rem">
 <input type="hidden" name="csrf" value="${esc(p.csrf)}">
 <label>Existing Tunnus user (optional)<select name="userId"><option value="">External / not linked</option>${userOptions}</select></label>
-<label>Label for external identity<input name="label" maxlength="200"></label><button>Create subject</button></form></section>
-<section><h3>MCP client identity modes</h3>${clientSettings || '<p>No active MCP credentials found.</p>'}</section>
-<section><h3>Create temporary reference</h3>
-<form method="post" action="${esc(p.basePath)}/account/mcp-identities/refs">
+<label>Label for external identity<input name="label" maxlength="200"></label>
+<button>Create subject</button>
+</form>
+</details>
+
+<details style="border:1px solid #e2e8f0;border-radius:.4rem;padding:.75rem;margin-top:.75rem">
+<summary style="cursor:pointer;font-weight:600">MCP Client Identity Modes</summary>
+<div style="margin-top:.75rem">${clientSettings || '<p>No active MCP credentials found.</p>'}</div>
+</details>
+
+<details style="border:1px solid #e2e8f0;border-radius:.4rem;padding:.75rem;margin-top:.75rem">
+<summary style="cursor:pointer;font-weight:600">Create Single Reference (Manual)</summary>
+<form method="post" action="${esc(p.basePath)}/account/mcp-identities/refs" style="margin-top:.75rem">
 <input type="hidden" name="csrf" value="${esc(p.csrf)}">
-<label>Existing identity subject (pseudonym or external identity)<select name="subjectId"><option value="">Select subject</option>${subjectOptions}</select></label>
+<label>Existing identity subject<select name="subjectId"><option value="">Select subject</option>${subjectOptions}</select></label>
 <label>Or select Tunnus user<select name="userId"><option value="">Select user</option>${userOptions}</select></label>
 <label>MCP credential<select name="credential" required><option value="">Select client</option>${clientOptions}</select></label>
-<button>Create new reference (24 h)</button></form></section>
-${subjectCards || '<p>No identity subjects yet.</p>'}`);
+<button>Create new reference (24 h)</button>
+</form>
+</details>
+${mcpScriptAndStyles()}`,
+  );
 }
