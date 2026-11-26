@@ -156,7 +156,7 @@ export async function createApp({ config, pool, mailer }, options = {}) {
   router.use(
     createPushRouter({
       pool,
-      token: config.pushRelayToken,
+      token: config.mailRelayToken,
       vapidPublicKey: config.vapid?.publicKey || '',
     })
   );
@@ -164,7 +164,7 @@ export async function createApp({ config, pool, mailer }, options = {}) {
   router.use(
     createWebhookRouter({
       pool,
-      token: config.mailRelayToken || config.pushRelayToken,
+      token: config.mailRelayToken,
     })
   );
 
