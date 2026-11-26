@@ -46,7 +46,7 @@
     "ajv-formats": "^3.0.1",
     "express": "^5.3.0",
     "nodemailer": "^10.3.1",
-    "oidc-provider": "^9.13.3",
+    "oidc-provider": "^9.15.1",
     "pg": "^8.23.1",
     "pino": "^10.4.0",
     "prom-client": "^15.1.3",
