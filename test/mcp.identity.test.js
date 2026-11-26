@@ -29,7 +29,17 @@ async function connect({ mode, callApi, state } = {}) {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const identity = {
     mode,
-    resolveUser: async (value) => {
+    resolveUser: async (value, options) => {
+      if (options?.allowUnlinked) {
+        if (value === 'pseudo:Unlinked Person' || value === 'ref:' + 'B'.repeat(43)) {
+          return value;
+        }
+        if (value === 'pseudo:Linked Person') {
+          const err = new Error('This identity is already linked to a Tunnus account');
+          /** @type {any} */ (err).code = 'target_already_linked';
+          throw err;
+        }
+      }
       if (value === 'pseudo:Person B' || value === 'ref:' + 'A'.repeat(43)) return USER_ID;
       throw new Error('invalid reference');
     },
@@ -42,7 +52,12 @@ async function connect({ mode, callApi, state } = {}) {
     spec,
     callApi,
     identity,
-    state: state ?? { mode: 'commit-list', fixedTimeUntil: null, listLocked: false, commitList: [] },
+    state: state ?? {
+      mode: 'commit-list',
+      fixedTimeUntil: null,
+      listLocked: false,
+      commitList: [],
+    },
   });
   await server.connect(serverTransport);
   const client = new Client({ name: 'identity-test', version: '1.0.0' });
@@ -134,15 +149,17 @@ describe('MCP restricted identity modes', () => {
       mode: 'commit-list',
       fixedTimeUntil: null,
       listLocked: false,
-      commitList: [{
-        id: 'stage-1',
-        operationId: 'getUser',
-        command: 'users get',
-        summary: 'Get a user',
-        params: { userId: USER_ID },
-        stagedBy: { userId: USER_ID, email: 'private@example.org', label: 'OAuth' },
-        stagedAt: '2026-01-01T00:00:00.000Z',
-      }],
+      commitList: [
+        {
+          id: 'stage-1',
+          operationId: 'getUser',
+          command: 'users get',
+          summary: 'Get a user',
+          params: { userId: USER_ID },
+          stagedBy: { userId: USER_ID, email: 'private@example.org', label: 'OAuth' },
+          stagedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ],
     };
     const { client } = await connect({
       mode: 'pseudo_ref',
@@ -206,6 +223,49 @@ describe('MCP restricted identity modes', () => {
       arguments: {},
     });
     expect(execRes.isError).toBe(true);
-    expect(execRes.content[0].text).toContain('Executing staged actions is disabled for MCP in restricted identity mode');
+    expect(execRes.content[0].text).toContain(
+      'Executing staged actions is disabled for MCP in restricted identity mode',
+    );
+  });
+
+  it('exposes ref in createUser and allows staging createUser with unlinked reference', async () => {
+    const tools = mcpTools(spec, 'pseudo_ref');
+    const createUserTool = tools.find((t) => t.name === 'createUser');
+    expect(createUserTool).toBeDefined();
+    expect(createUserTool.inputSchema.properties.body.properties).toHaveProperty('ref');
+    expect(createUserTool.inputSchema.properties.body.properties.ref.description).toContain(
+      'pseudo:<alias>',
+    );
+
+    const state = {
+      mode: 'commit-list',
+      fixedTimeUntil: null,
+      listLocked: false,
+      commitList: [],
+    };
+    const { client } = await connect({
+      mode: 'pseudo_ref',
+      state,
+      callApi: async () => ({ status: 201, body: USER }),
+    });
+
+    const res = await client.callTool({
+      name: 'createUser',
+      arguments: {
+        body: { ref: 'pseudo:Unlinked Person' },
+      },
+    });
+    expect(res.structuredContent.staged).toBe(true);
+    expect(state.commitList).toHaveLength(1);
+    expect(state.commitList[0].body.ref).toBe('pseudo:Unlinked Person');
+
+    const errRes = await client.callTool({
+      name: 'createUser',
+      arguments: {
+        body: { ref: 'pseudo:Linked Person' },
+      },
+    });
+    expect(errRes.isError).toBe(true);
+    expect(errRes.content[0].text).toContain('already linked');
   });
 });

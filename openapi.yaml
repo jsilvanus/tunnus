@@ -1084,10 +1084,19 @@ components:
 
     UserCreate:
       type: object
-      required: [email]
       additionalProperties: false
       properties:
-        email: { $ref: '#/components/schemas/Email' }
+        ref:
+          type: string
+          x-tunnus-user-reference: 'allow_unlinked'
+          description: MCP user reference (pseudo:<alias> or ref:<handle>) to an unlinked identity subject. The newly created user will be linked to this subject.
+        email:
+          description: User's email address. If omitted and `ref` is provided, the email is derived from the referenced subject's label.
+          oneOf:
+            - $ref: '#/components/schemas/Email'
+            - type: string
+              pattern: '^(pseudo:[a-zA-Z0-9_-]+|ref:[a-zA-Z0-9_-]+)$'
+              x-tunnus-user-reference: 'allow_unlinked'
         display_name:
           $ref: '#/components/schemas/DisplayName'
           description: Defaults to a name derived from the email local part

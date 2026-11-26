@@ -10,7 +10,11 @@ function normalizeAlias(value) {
 
 /** @param {{ ownerUserId: string, authKind: 'oauth' | 'admin_token', authClientKey: string }} scope */
 function assertScope(scope) {
-  if (!scope?.ownerUserId || !['oauth', 'admin_token'].includes(scope.authKind) || !scope.authClientKey) {
+  if (
+    !scope?.ownerUserId ||
+    !['oauth', 'admin_token'].includes(scope.authKind) ||
+    !scope.authClientKey
+  ) {
     throw new Error('A verified MCP identity scope is required');
   }
 }
@@ -81,18 +85,17 @@ export async function ensureMcpIdentitySubject(pool, scope, userId) {
 }
 
 /**
- * Resolve a typed alias/reference to a linked Tunnus user. External subjects intentionally cannot
- * be used for operations that require an account.
+ * Resolve a typed alias/reference to an owner-owned identity subject (linked or external).
  * @param {import('pg').Pool} pool
  * @param {ReturnType<typeof scopeOf>} scope
  * @param {string} identifier
- * @param {'pseudo_ref' | 'ref_only'} mode
+ * @param {'pseudo_ref' | 'ref_only'} [mode]
  */
-export async function resolveMcpUserReference(pool, scope, identifier, mode) {
+export async function resolveMcpSubjectReference(pool, scope, identifier, mode = 'pseudo_ref') {
   assertScope(scope);
   if (typeof identifier !== 'string') throw new Error('Invalid user reference');
   let subject;
-  if (identifier.startsWith('pseudo:') && mode === 'pseudo_ref') {
+  if (identifier.startsWith('pseudo:') && mode !== 'ref_only') {
     const alias = identifier.slice(7).trim();
     if (!alias) throw new Error('Unknown user reference');
     const found = await pool.query(
@@ -105,19 +108,39 @@ export async function resolveMcpUserReference(pool, scope, identifier, mode) {
     subject = found.rows[0];
   } else if (identifier.startsWith('ref:')) {
     const handle = identifier.slice(4);
+    const params = [scope.ownerUserId, handle];
+    let scopeClause = '';
+    if (scope.authKind && scope.authClientKey && scope.authClientKey !== 'internal') {
+      params.push(scope.authKind, scope.authClientKey);
+      scopeClause = `AND r.auth_kind = $3 AND r.auth_client_key = $4`;
+    }
     const found = await pool.query(
       `SELECT s.id, s.tunnus_user_id, s.label
          FROM mcp_identity_refs r
          JOIN mcp_identity_subjects s ON s.id = r.subject_id AND s.owner_user_id = r.owner_user_id
-        WHERE r.owner_user_id = $1 AND r.auth_kind = $2 AND r.auth_client_key = $3
-          AND r.handle = $4 AND r.revoked_at IS NULL AND r.expires_at > now()`,
-      [scope.ownerUserId, scope.authKind, scope.authClientKey, handle],
+        WHERE r.owner_user_id = $1 AND r.handle = $2
+          ${scopeClause}
+          AND r.revoked_at IS NULL AND r.expires_at > now()`,
+      params,
     );
     subject = found.rows[0];
   } else {
     throw new Error('User reference must use pseudo: or ref: syntax');
   }
   if (!subject) throw new Error('Unknown or expired user reference');
+  return subject;
+}
+
+/**
+ * Resolve a typed alias/reference to a linked Tunnus user. External subjects intentionally cannot
+ * be used for operations that require an account.
+ * @param {import('pg').Pool} pool
+ * @param {ReturnType<typeof scopeOf>} scope
+ * @param {string} identifier
+ * @param {'pseudo_ref' | 'ref_only'} mode
+ */
+export async function resolveMcpUserReference(pool, scope, identifier, mode) {
+  const subject = await resolveMcpSubjectReference(pool, scope, identifier, mode);
   if (!subject.tunnus_user_id) {
     const err = new Error('This identity is not linked to a Tunnus account');
     /** @type {any} */ (err).code = 'target_not_linked';
@@ -247,7 +270,10 @@ export async function revokeMcpIdentityRef(pool, { ownerUserId, refId }) {
  * @param {import('pg').Pool} pool
  * @param {{ ownerUserId: string, userId?: string | null, label?: string, notes?: string }} input
  */
-export async function createMcpIdentitySubject(pool, { ownerUserId, userId = null, label = '', notes = '' }) {
+export async function createMcpIdentitySubject(
+  pool,
+  { ownerUserId, userId = null, label = '', notes = '' },
+) {
   const { rows } = await pool.query(
     `INSERT INTO mcp_identity_subjects (owner_user_id, tunnus_user_id, label, notes)
      VALUES ($1, $2, $3, $4)
@@ -262,7 +288,10 @@ export async function createMcpIdentitySubject(pool, { ownerUserId, userId = nul
  * @param {import('pg').Pool} pool
  * @param {{ ownerUserId: string, subjectId: string, pseudonym: string, preferred?: boolean }} input
  */
-export async function addMcpPseudonym(pool, { ownerUserId, subjectId, pseudonym, preferred = false }) {
+export async function addMcpPseudonym(
+  pool,
+  { ownerUserId, subjectId, pseudonym, preferred = false },
+) {
   const value = pseudonym.trim();
   if (!value || value.length > 100 || /[\r\n]/.test(value)) throw new Error('Invalid pseudonym');
   const normalized = normalizeAlias(value);
@@ -325,7 +354,11 @@ export async function linkMcpIdentitySubject(pool, { ownerUserId, subjectId, use
  * @param {{ ttlMs?: number }} [options]
  */
 export async function createMcpIdentityRefForSubject(pool, input, options = {}) {
-  const scope = { ownerUserId: input.ownerUserId, authKind: input.authKind, authClientKey: input.authClientKey };
+  const scope = {
+    ownerUserId: input.ownerUserId,
+    authKind: input.authKind,
+    authClientKey: input.authClientKey,
+  };
   assertScope(scope);
   const owned = await pool.query(
     'SELECT id FROM mcp_identity_subjects WHERE id = $1 AND owner_user_id = $2',
@@ -374,19 +407,23 @@ export async function deleteMcpPseudonym(pool, { ownerUserId, pseudonymId }) {
 
 export async function mapIdentitySchema(value, schema, convert, direction) {
   if (value === null || value === undefined || !schema) return value;
-  if (direction === 'input' && schema['x-tunnus-user-reference'] === true) {
+  if (direction === 'input' && Boolean(schema['x-tunnus-user-reference'])) {
     if (typeof value !== 'string') throw new Error('Invalid user reference');
-    return convert(value);
+    return convert(value, {
+      allowUnlinked: schema['x-tunnus-user-reference'] === 'allow_unlinked',
+    });
   }
   if (
     direction === 'output' &&
-    (schema['x-tunnus-user-id'] === true || schema['x-tunnus-user-reference'] === true)
+    (schema['x-tunnus-user-id'] === true || Boolean(schema['x-tunnus-user-reference']))
   ) {
     if (typeof value !== 'string' || !value) return value;
     return convert(value);
   }
   if (Array.isArray(value)) {
-    return Promise.all(value.map((item) => mapIdentitySchema(item, schema.items, convert, direction)));
+    return Promise.all(
+      value.map((item) => mapIdentitySchema(item, schema.items, convert, direction)),
+    );
   }
   if (typeof value !== 'object') return value;
   const out = { ...value };

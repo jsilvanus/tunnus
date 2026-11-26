@@ -50,18 +50,28 @@ export const INSTRUCTIONS = serverInstructions();
 
 function identityInputSchema(schema, mode) {
   if (!schema || typeof schema !== 'object') return schema;
-  if (mode !== 'open' && schema['x-tunnus-user-reference'] === true) {
-    return { type: 'string', description: mode === 'ref_only'
-      ? 'Use a temporary ref:<handle> identifier.'
-      : 'Use pseudo:<alias> or ref:<handle>; raw names and UUIDs are not accepted.' };
+  if (mode !== 'open' && Boolean(schema['x-tunnus-user-reference'])) {
+    return {
+      type: 'string',
+      description:
+        mode === 'ref_only'
+          ? 'Use a temporary ref:<handle> identifier.'
+          : 'Use pseudo:<alias> or ref:<handle>; raw names and UUIDs are not accepted.',
+    };
   }
   if (Array.isArray(schema)) return schema.map((item) => identityInputSchema(item, mode));
-  return Object.fromEntries(Object.entries(schema).map(([key, value]) => [
-    key,
-    key === 'properties' && value && typeof value === 'object'
-      ? Object.fromEntries(Object.entries(value).map(([name, child]) => [name, identityInputSchema(child, mode)]))
-      : ['items', 'oneOf', 'anyOf', 'allOf'].includes(key) ? identityInputSchema(value, mode) : value,
-  ]));
+  return Object.fromEntries(
+    Object.entries(schema).map(([key, value]) => [
+      key,
+      key === 'properties' && value && typeof value === 'object'
+        ? Object.fromEntries(
+            Object.entries(value).map(([name, child]) => [name, identityInputSchema(child, mode)]),
+          )
+        : ['items', 'oneOf', 'anyOf', 'allOf'].includes(key)
+          ? identityInputSchema(value, mode)
+          : value,
+    ]),
+  );
 }
 /**
  * The JSON Schema of a tool's input: path and query parameters as properties, the request body as `body`.
@@ -74,7 +84,10 @@ function inputSchemaFor(op, mode = 'open') {
   const required = [];
   for (const p of [...op.pathParams, ...op.queryParams]) {
     if (mode !== 'open' && p.sensitiveUserSearch) continue;
-    properties[p.name] = identityInputSchema(p.description ? { ...p.schema, description: p.description } : p.schema, mode);
+    properties[p.name] = identityInputSchema(
+      p.description ? { ...p.schema, description: p.description } : p.schema,
+      mode,
+    );
     if (p.required) required.push(p.name);
   }
   if (op.bodySchema) {
@@ -178,7 +191,16 @@ export function mcpTools(spec, mode = 'open') {
     .map((op) => ({
       name: op.operationId,
       title: op.summary,
-      description: mode === 'open' ? (op.description ? `${op.summary}\n\n${op.description}` : op.summary) : op.summary + String.fromCharCode(10, 10) + (mode === 'pseudo_ref' ? 'Use pseudo:<alias> or ref:<handle> for users. Never use raw names, emails, or UUIDs.' : 'Use ref:<handle> only for users.'),
+      description:
+        mode === 'open'
+          ? op.description
+            ? `${op.summary}\n\n${op.description}`
+            : op.summary
+          : op.summary +
+            String.fromCharCode(10, 10) +
+            (mode === 'pseudo_ref'
+              ? 'Use pseudo:<alias> or ref:<handle> for users. Never use raw names, emails, or UUIDs.'
+              : 'Use ref:<handle> only for users.'),
       inputSchema: inputSchemaFor(op, mode),
       annotations: annotationsFor(op),
       operation: op,
@@ -232,14 +254,15 @@ export function createMcpServer({
   const identityMode = identity?.mode ?? 'open';
   const resolvedCache = new Map();
   const representedCache = new Map();
-  const resolveIdentityUser = async (value) => {
+  const resolveIdentityUser = async (value, options) => {
     if (identityMode === 'ref_only' && typeof value === 'string' && value.startsWith('pseudo:')) {
       throw new Error('Pseudonym inputs are not allowed in ref_only mode');
     }
-    if (resolvedCache.has(value)) return resolvedCache.get(value);
+    const cacheKey = options?.allowUnlinked ? `${value}:unlinked` : value;
+    if (resolvedCache.has(cacheKey)) return resolvedCache.get(cacheKey);
     if (!identity?.resolveUser) throw new Error('Restricted MCP identity context is unavailable');
-    const result = await identity.resolveUser(value);
-    resolvedCache.set(value, result);
+    const result = await identity.resolveUser(value, options);
+    resolvedCache.set(cacheKey, result);
     return result;
   };
   const representIdentityUser = async (value) => {
@@ -303,17 +326,44 @@ export function createMcpServer({
       const state = await getState();
       const remainingSeconds = Math.round(getFixedTimeRemainingMs(state) / 1000);
       const running = isFixedTimeRunning(state);
-      const commitList = identityMode === 'open' ? state.commitList : await Promise.all(state.commitList.map(async (item) => {
-        const op = opsById.get(item.operationId);
-        if (!op) return { id: item.id, operationId: item.operationId, command: item.command, summary: item.summary, stagedAt: item.stagedAt };
-        const paramSchema = { type: 'object', properties: Object.fromEntries([...op.pathParams, ...op.queryParams].map((p) => [p.name, p.schema])) };
-        return {
-          ...item,
-          params: await mapIdentitySchema(item.params ?? {}, paramSchema, representIdentityUser, 'output'),
-          body: await mapIdentitySchema(item.body, op.bodySchema, representIdentityUser, 'output'),
-          stagedBy: item.stagedBy ? { label: item.stagedBy.label ?? 'MCP client' } : null,
-        };
-      }));
+      const commitList =
+        identityMode === 'open'
+          ? state.commitList
+          : await Promise.all(
+              state.commitList.map(async (item) => {
+                const op = opsById.get(item.operationId);
+                if (!op)
+                  return {
+                    id: item.id,
+                    operationId: item.operationId,
+                    command: item.command,
+                    summary: item.summary,
+                    stagedAt: item.stagedAt,
+                  };
+                const paramSchema = {
+                  type: 'object',
+                  properties: Object.fromEntries(
+                    [...op.pathParams, ...op.queryParams].map((p) => [p.name, p.schema]),
+                  ),
+                };
+                return {
+                  ...item,
+                  params: await mapIdentitySchema(
+                    item.params ?? {},
+                    paramSchema,
+                    representIdentityUser,
+                    'output',
+                  ),
+                  body: await mapIdentitySchema(
+                    item.body,
+                    op.bodySchema,
+                    representIdentityUser,
+                    'output',
+                  ),
+                  stagedBy: item.stagedBy ? { label: item.stagedBy.label ?? 'MCP client' } : null,
+                };
+              }),
+            );
       const data = {
         mode: state.mode ?? (running ? 'direct' : 'commit-list'),
         fixedTimeRunning: running,
@@ -370,13 +420,31 @@ export function createMcpServer({
       if (stateStore?.executeCommitList) {
         const res = await stateStore.executeCommitList({ userId, callApi, opsById });
         if (!res.ok) {
-          return errorResult(identityMode === 'open' ? res.error : 'One or more staged operations failed. Review the commit list in the account page.');
+          return errorResult(
+            identityMode === 'open'
+              ? res.error
+              : 'One or more staged operations failed. Review the commit list in the account page.',
+          );
         }
         return {
           content: [
             { type: 'text', text: `Executed ${res.executed.length} action(s) from commit list.` },
           ],
-          structuredContent: { executed: identityMode === 'open' ? res.executed : await Promise.all(res.executed.map(async (item) => ({ ...item, body: await projectOperationOutput(opsById.get(item.operationId), item.body, representIdentityUser) }))) },
+          structuredContent: {
+            executed:
+              identityMode === 'open'
+                ? res.executed
+                : await Promise.all(
+                    res.executed.map(async (item) => ({
+                      ...item,
+                      body: await projectOperationOutput(
+                        opsById.get(item.operationId),
+                        item.body,
+                        representIdentityUser,
+                      ),
+                    })),
+                  ),
+          },
         };
       }
 
@@ -391,7 +459,10 @@ export function createMcpServer({
         }
         try {
           const res = await callApi(op, { params: item.params, body: item.body });
-          const safeBody = identityMode === 'open' ? res.body : await projectOperationOutput(op, res.body, representIdentityUser);
+          const safeBody =
+            identityMode === 'open'
+              ? res.body
+              : await projectOperationOutput(op, res.body, representIdentityUser);
           executed.push({
             id: item.id,
             operationId: item.operationId,
@@ -405,7 +476,9 @@ export function createMcpServer({
           await persistState(state);
           if (err instanceof ApiError) {
             return errorResult(
-              identityMode === 'open' ? `Failed executing ${item.command} (${item.id}):\n${describeApiError(err).join('\n')}` : 'A staged operation failed. Review the commit list in the account page.',
+              identityMode === 'open'
+                ? `Failed executing ${item.command} (${item.id}):\n${describeApiError(err).join('\n')}`
+                : 'A staged operation failed. Review the commit list in the account page.',
             );
           }
           throw err;
@@ -428,11 +501,22 @@ export function createMcpServer({
     let mappedBody = body;
     if (identityMode !== 'open') {
       try {
-        const mapped = await mapOperationInput(tool.operation, rawParams, body, resolveIdentityUser);
+        const mapped = await mapOperationInput(
+          tool.operation,
+          rawParams,
+          body,
+          resolveIdentityUser,
+        );
         params = mapped.params;
         mappedBody = mapped.body;
       } catch (err) {
-        return errorResult(err?.code === 'target_not_linked' ? 'This identity is not linked to a Tunnus account.' : 'Unknown, expired, or invalid user reference. Use a valid typed reference from the pseudonyms page.');
+        return errorResult(
+          err?.code === 'target_not_linked'
+            ? 'This identity is not linked to a Tunnus account.'
+            : err?.code === 'target_already_linked'
+              ? 'This identity is already linked to a Tunnus account.'
+              : 'Unknown, expired, or invalid user reference. Use a valid typed reference from the pseudonyms page.',
+        );
       }
     }
     const isMutative = tool.operation.method !== 'get';
@@ -517,13 +601,21 @@ export function createMcpServer({
         params,
         body: tool.operation.bodySchema ? mappedBody : undefined,
       });
-      const structured = identityMode === 'open' ? (res.body ?? {}) : await projectOperationOutput(tool.operation, res.body ?? {}, representIdentityUser);
+      const structured =
+        identityMode === 'open'
+          ? (res.body ?? {})
+          : await projectOperationOutput(tool.operation, res.body ?? {}, representIdentityUser);
       return {
         content: [{ type: 'text', text: JSON.stringify(structured, null, 2) }],
         structuredContent: structured,
       };
     } catch (err) {
-      if (err instanceof ApiError) return errorResult(identityMode === 'open' ? describeApiError(err).join('\n') : 'The operation failed. Check the supplied reference and permissions, then try again.');
+      if (err instanceof ApiError)
+        return errorResult(
+          identityMode === 'open'
+            ? describeApiError(err).join('\n')
+            : 'The operation failed. Check the supplied reference and permissions, then try again.',
+        );
       throw err;
     }
   });

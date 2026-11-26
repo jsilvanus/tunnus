@@ -3,6 +3,7 @@ import { audit } from '../audit.js';
 import { errorFields, logger } from '../logger.js';
 import {
   getMcpIdentitySettings,
+  resolveMcpSubjectReference,
   resolveMcpUserReference,
   representMcpUser,
   mapOperationInput,
@@ -149,6 +150,20 @@ export function createAdminRouter({
         authKind: 'admin_token',
         authClientKey: actor.tokenId,
       };
+    } else if (actor?.clientId) {
+      identityScope = {
+        ownerUserId: actor.userId,
+        authKind: 'oauth',
+        authClientKey: actor.clientId,
+      };
+    } else if (actor?.userId) {
+      identityScope = {
+        ownerUserId: actor.userId,
+        authKind: 'admin_token',
+        authClientKey: actor.userId,
+      };
+    }
+    if (identityScope) {
       try {
         identityMode = await getMcpIdentitySettings(pool, identityScope);
       } catch {
@@ -161,9 +176,13 @@ export function createAdminRouter({
       const query = { ...req.query };
 
       if (identityMode !== 'open') {
-        const queryParams = clientOp.queryParams ?? op.parameters?.filter((p) => p.in === 'query') ?? [];
+        const queryParams =
+          clientOp.queryParams ?? op.parameters?.filter((p) => p.in === 'query') ?? [];
         const hasSensitiveSearch = queryParams.some(
-          (p) => p.sensitiveUserSearch || p.schema?.['x-tunnus-sensitive-user-search'] || p['x-tunnus-sensitive-user-search'],
+          (p) =>
+            p.sensitiveUserSearch ||
+            p.schema?.['x-tunnus-sensitive-user-search'] ||
+            p['x-tunnus-sensitive-user-search'],
         );
         if (hasSensitiveSearch && (query.q || query.name || query.title || query.email)) {
           throw invalid('Search by direct email or name is disabled in restricted identity mode', [
@@ -182,16 +201,41 @@ export function createAdminRouter({
       let mappedBody = requestBody;
       if (identityMode !== 'open') {
         try {
-          const mapped = await mapOperationInput(clientOp, params, requestBody, async (val) => {
-            if (identityMode === 'ref_only' && typeof val === 'string' && val.startsWith('pseudo:')) {
-              throw new AdminError(
-                400,
-                'invalid_request',
-                'Pseudonym inputs are not allowed in ref_only mode',
-              );
-            }
-            return await resolveMcpUserReference(pool, identityScope, val, identityMode);
-          });
+          const mapped = await mapOperationInput(
+            clientOp,
+            params,
+            requestBody,
+            async (val, options) => {
+              if (
+                identityMode === 'ref_only' &&
+                typeof val === 'string' &&
+                val.startsWith('pseudo:')
+              ) {
+                throw new AdminError(
+                  400,
+                  'invalid_request',
+                  'Pseudonym inputs are not allowed in ref_only mode',
+                );
+              }
+              if (options?.allowUnlinked) {
+                const subject = await resolveMcpSubjectReference(
+                  pool,
+                  identityScope,
+                  val,
+                  identityMode,
+                );
+                if (subject.tunnus_user_id) {
+                  throw new AdminError(
+                    409,
+                    'conflict',
+                    'This identity is already linked to a Tunnus account',
+                  );
+                }
+                return val;
+              }
+              return await resolveMcpUserReference(pool, identityScope, val, identityMode);
+            },
+          );
           mappedParams = mapped.params;
           mappedBody = mapped.body;
         } catch (err) {
@@ -199,7 +243,9 @@ export function createAdminRouter({
           throw invalid(
             err?.code === 'target_not_linked'
               ? 'This identity is not linked to a Tunnus account'
-              : 'Unknown, expired, or invalid user reference',
+              : err?.code === 'target_already_linked'
+                ? 'This identity is already linked to a Tunnus account'
+                : 'Unknown, expired, or invalid user reference',
           );
         }
       }
@@ -211,7 +257,9 @@ export function createAdminRouter({
           config,
           clients: getClients ? getClients() : (clients ?? []),
           getClients,
-          actor: { userId: actor.userId, tokenId: actor.tokenId },
+          actor: { userId: actor.userId, tokenId: actor.tokenId, clientId: actor.clientId },
+          identityScope,
+          identityMode,
           ip: req.ip ?? null,
           params: mappedParams,
           query,
@@ -223,7 +271,12 @@ export function createAdminRouter({
       body = status === 204 ? undefined : result.body;
       target = result.audit ?? {};
 
-      if (identityMode !== 'open' && status < 300 && body !== undefined && op.operationId !== 'getMe') {
+      if (
+        identityMode !== 'open' &&
+        status < 300 &&
+        body !== undefined &&
+        op.operationId !== 'getMe'
+      ) {
         body = await projectOperationOutput(clientOp, body, (uid) =>
           representMcpUser(pool, identityScope, uid, identityMode),
         );

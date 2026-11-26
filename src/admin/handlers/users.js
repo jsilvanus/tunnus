@@ -9,6 +9,7 @@ import { AdminError } from '../errors.js';
 import { page } from '../paging.js';
 import { userJson, USER_GROUP_BY, USER_SELECT } from '../serialize.js';
 import { errorFields, logger } from '../../logger.js';
+import { resolveMcpSubjectReference } from '../../mcp/identity.js';
 import {
   conflict,
   cursorField,
@@ -28,6 +29,23 @@ const USER_BY_ID = `${USER_SELECT} WHERE u.id = $1 ${USER_GROUP_BY}`;
 
 /** @param {string} email */
 const normalizeEmail = (email) => email.trim().toLowerCase();
+
+/**
+ * @param {string | null | undefined} label
+ * @returns {{ email: string | null, name: string | null }}
+ */
+function extractEmailAndName(label) {
+  if (!label || typeof label !== 'string') return { email: null, name: null };
+  const trimmed = label.trim();
+  const angleMatch = /^(.*?)\s*<([^>@]+@[^>@]+)>$/.exec(trimmed);
+  if (angleMatch) {
+    return { name: angleMatch[1].trim() || null, email: angleMatch[2].trim() };
+  }
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    return { email: trimmed, name: null };
+  }
+  return { email: null, name: trimmed || null };
+}
 
 /**
  * Lock every active admin, in id order. Each transaction that can remove an admin takes this lock
@@ -141,6 +159,7 @@ export const handlers = {
   async createUser(ctx) {
     const {
       email,
+      ref,
       display_name: displayName,
       title,
       phone_number: phoneNumber,
@@ -149,15 +168,92 @@ export const handlers = {
       is_admin: isAdmin,
       groups,
     } = ctx.body;
+
+    let effectiveRef = ref;
+    let effectiveEmail = email;
+    if (
+      !effectiveRef &&
+      typeof effectiveEmail === 'string' &&
+      (effectiveEmail.startsWith('pseudo:') || effectiveEmail.startsWith('ref:'))
+    ) {
+      effectiveRef = effectiveEmail;
+      effectiveEmail = undefined;
+    }
+
+    let subject = null;
+    let identityOwnerUserId = null;
+    if (effectiveRef) {
+      const scope =
+        ctx.identityScope ??
+        (ctx.actor?.userId
+          ? {
+              ownerUserId: ctx.actor.userId,
+              authKind: ctx.actor.tokenId ? 'admin_token' : 'direct',
+              authClientKey: ctx.actor.tokenId || ctx.actor.userId,
+            }
+          : null);
+      if (!scope) {
+        throw new AdminError(
+          400,
+          'invalid_request',
+          'MCP identity context is required to resolve user reference',
+        );
+      }
+      identityOwnerUserId = scope.ownerUserId;
+      subject = await resolveMcpSubjectReference(
+        ctx.pool,
+        scope,
+        effectiveRef,
+        ctx.identityMode ?? 'pseudo_ref',
+      );
+      if (subject.tunnus_user_id) {
+        throw new AdminError(
+          409,
+          'conflict',
+          'This identity is already linked to a Tunnus account',
+        );
+      }
+    }
+
+    let resolvedEmail = effectiveEmail;
+    let resolvedName = displayName;
+    if (subject) {
+      const parsed = extractEmailAndName(subject.label);
+      if (!resolvedEmail && parsed.email) {
+        resolvedEmail = parsed.email;
+      }
+      if (!resolvedName && parsed.name) {
+        resolvedName = parsed.name;
+      }
+    }
+
+    if (!resolvedEmail) {
+      throw new AdminError(
+        400,
+        'invalid_request',
+        effectiveRef
+          ? 'Email is required when reference identity label does not contain a valid email address'
+          : 'Either email or ref must be provided',
+      );
+    }
+
     let id;
     try {
       id = await inTransaction(ctx.pool, async (client) => {
         const newId = await createUser(
           client,
-          normalizeEmail(email),
+          normalizeEmail(resolvedEmail),
           ctx.config.defaultGroups,
-          displayName,
+          resolvedName,
         );
+        if (subject && identityOwnerUserId) {
+          await client.query(
+            `UPDATE mcp_identity_subjects
+                SET tunnus_user_id = $1, updated_at = now()
+              WHERE id = $2 AND owner_user_id = $3 AND tunnus_user_id IS NULL`,
+            [newId, subject.id, identityOwnerUserId],
+          );
+        }
         const updates = [];
         const params = [newId];
         if (isAdmin) {

@@ -1,7 +1,12 @@
 import express from 'express';
 import { createApiClient } from '../client/http.js';
 import { createMcpServer } from './server.js';
-import { getMcpIdentitySettings, representMcpUser, resolveMcpUserReference } from './identity.js';
+import {
+  getMcpIdentitySettings,
+  representMcpUser,
+  resolveMcpSubjectReference,
+  resolveMcpUserReference,
+} from './identity.js';
 import { protectedResourceMetadata, wwwAuthenticate } from './oauth.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
@@ -107,7 +112,11 @@ export function createMcpHttpApp({
           if (!found.ok) return void sendUnauthorized(res, 'invalid_token');
           res.locals.token = token;
           res.locals.user = found.user;
-          res.locals.identityScope = { ownerUserId: found.user.id, authKind: 'admin_token', authClientKey: found.token.id };
+          res.locals.identityScope = {
+            ownerUserId: found.user.id,
+            authKind: 'admin_token',
+            authClientKey: found.token.id,
+          };
           res.locals.actor = {
             userId: found.user.id,
             email: found.user.email,
@@ -155,7 +164,18 @@ export function createMcpHttpApp({
       const mode = await getMcpIdentitySettings(identityPool, scope);
       identity = {
         mode,
-        resolveUser: (value) => resolveMcpUserReference(identityPool, scope, value, mode),
+        resolveUser: async (value, options) => {
+          if (options?.allowUnlinked) {
+            const subject = await resolveMcpSubjectReference(identityPool, scope, value, mode);
+            if (subject.tunnus_user_id) {
+              const err = new Error('This identity is already linked to a Tunnus account');
+              /** @type {any} */ (err).code = 'target_already_linked';
+              throw err;
+            }
+            return value;
+          }
+          return resolveMcpUserReference(identityPool, scope, value, mode);
+        },
         representUser: (value) => representMcpUser(identityPool, scope, value, mode),
       };
     }

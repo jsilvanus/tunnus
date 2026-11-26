@@ -103,6 +103,7 @@ export function createAdminAuth({
         userId: user.id,
         tokenId: null,
         token: null,
+        clientId: verified.claims?.client_id ?? null,
         user,
       };
       next();
