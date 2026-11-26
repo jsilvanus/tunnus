@@ -7,6 +7,7 @@ import { createAdminRouter } from '../src/admin/router.js';
 import { createLocalAdminFetch } from '../src/app.js';
 import { createMcpHttpApp } from '../src/mcp/http.js';
 import { createMcpJwtVerifier, protectedResourceMetadata, verifyMcpJwt } from '../src/mcp/oauth.js';
+import { createResourceServerInfoResolver } from '../src/oidc/provider.js';
 
 const ISSUER = 'https://id.example.org';
 const RESOURCE = `${ISSUER}/mcp`;
@@ -297,6 +298,23 @@ describe('createAdminAuth with OAuth JWT', () => {
         totp_enabled: false,
         groups: ['admin'],
       },
+    });
+  });
+});
+
+describe('createResourceServerInfoResolver MCP token lifetime', () => {
+  it('returns 3600s TTL and RS256 JWT format for MCP resource indicator', () => {
+    const resolver = createResourceServerInfoResolver({
+      config: /** @type {any} */ ({ mcp: { resourceUrl: RESOURCE }, issuer: ISSUER }),
+      clients: [],
+    });
+    const info = resolver({}, RESOURCE, {});
+    expect(info).toMatchObject({
+      scope: 'mcp',
+      audience: RESOURCE,
+      accessTokenTTL: 3600,
+      accessTokenFormat: 'jwt',
+      jwt: { sign: { alg: 'RS256' } },
     });
   });
 });

@@ -124,7 +124,7 @@ export function createResourceServerInfoResolver({ config, clients }) {
     return {
       scope: ctx?.oidc ? 'openid offline_access email profile groups mcp' : 'mcp',
       audience: resourceIndicator,
-      accessTokenTTL: 600,
+      accessTokenTTL: 3600,
       accessTokenFormat: 'jwt',
       jwt: { sign: { alg: 'RS256' } },
     };
@@ -185,14 +185,26 @@ export function createProvider({ config, pool, clients, jwks }) {
     pkce: { required: () => true },
     ttl: {
       AuthorizationCode: 60,
-      AccessToken: 600,
-      IdToken: 600,
+      AccessToken: 3600,
+      IdToken: 3600,
       RefreshToken: 30 * day,
       Interaction: 600,
       Session: config.sessionTtlDays * day,
       Grant: 30 * day,
     },
-    rotateRefreshToken: true,
+    issueRefreshToken: async (_ctx, client, source) => {
+      if (!client.grantTypeAllowed('refresh_token')) return false;
+      return (
+        source.scopes.has('offline_access') ||
+        source.scopes.has('mcp') ||
+        Boolean(client.clientIdMetadataDocument)
+      );
+    },
+    expiresWithSession: async (_ctx, source) => {
+      if (source.scopes.has('mcp')) return false;
+      return !source.scopes.has('offline_access');
+    },
+    rotateRefreshToken: false,
     interactions: {
       policy,
       url: (_ctx, interaction) => `${config.basePath}/interaction/${interaction.uid}`,

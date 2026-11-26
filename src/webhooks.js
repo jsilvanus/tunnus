@@ -35,7 +35,10 @@ export function formatSlackPayload(payload) {
         type: 'section',
         fields: [
           { type: 'mrkdwn', text: `*Seurakunta:*\n${parish}` },
-          { type: 'mrkdwn', text: `*Media:*\n${title} (${(asset?.format || 'media').toUpperCase()})` },
+          {
+            type: 'mrkdwn',
+            text: `*Media:*\n${title} (${(asset?.format || 'media').toUpperCase()})`,
+          },
           { type: 'mrkdwn', text: `*Tyyppi:*\n${asset?.kind || 'asset'}` },
           { type: 'mrkdwn', text: `*Kanava:*\n${context?.channel || 'Verkko'}${canvaText}` },
         ],
@@ -112,11 +115,11 @@ export async function dispatchWebhookEvent(pool, tenant, event, payload, fetchIm
     `SELECT id, name, url, events, secret
      FROM notification_hooks
      WHERE active = true AND (tenant = $1 OR tenant = '')`,
-    [tenant]
+    [tenant],
   );
 
   const matching = hooks.filter(
-    (h) => !h.events || h.events.length === 0 || h.events.includes(event) || h.events.includes('*')
+    (h) => !h.events || h.events.length === 0 || h.events.includes(event) || h.events.includes('*'),
   );
 
   if (matching.length === 0) {
@@ -126,7 +129,7 @@ export async function dispatchWebhookEvent(pool, tenant, event, payload, fetchIm
   const results = [];
 
   for (const hook of matching) {
-    let success = false;
+    let success;
     let statusCode = null;
     let errorMessage = null;
 
@@ -175,7 +178,7 @@ export async function dispatchWebhookEvent(pool, tenant, event, payload, fetchIm
       await pool.query(
         `INSERT INTO notification_deliveries (hook_id, tenant, event, payload, status_code, success, error)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [hook.id, tenant, event, JSON.stringify(payload), statusCode, success, errorMessage]
+        [hook.id, tenant, event, JSON.stringify(payload), statusCode, success, errorMessage],
       );
     } catch (logErr) {
       logger.error({ logErr }, 'failed to record webhook delivery');

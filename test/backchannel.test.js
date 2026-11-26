@@ -309,7 +309,7 @@ describe('multi-resource indicator support in provider', () => {
     expect(defaultInfo).toMatchObject({
       scope: 'mcp',
       audience: 'https://id.example.org/mcp',
-      accessTokenTTL: 600,
+      accessTokenTTL: 3600,
       accessTokenFormat: 'jwt',
     });
 

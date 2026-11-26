@@ -7,4 +7,13 @@ export default [
   {
     languageOptions: { ecmaVersion: 2024, sourceType: 'module', globals: globals.node },
   },
+  {
+    files: ['src/client/push.js', 'src/client/sw.js'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.serviceworker,
+      },
+    },
+  },
 ];

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { urlBase64ToUint8Array, serializePushSubscription } from '../src/client/push.js';
 
 describe('Web Push Client Helpers', () => {
@@ -46,7 +46,7 @@ describe('Web Push Client Helpers', () => {
     };
 
     expect(() => serializePushSubscription(/** @type {any} */ (invalidSubscription))).toThrow(
-      'Invalid PushSubscription object'
+      'Invalid PushSubscription object',
     );
   });
 });
