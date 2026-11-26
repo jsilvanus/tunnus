@@ -89,6 +89,7 @@ export async function sendWebPushNotification({
  * @param {object} params
  * @param {string} [params.tunnusUrl='https://tunnus.riihimaenseurakunta.fi']
  * @param {string} params.token Bearer relay token
+ * @param {string} [params.from] Sender address, or `Name <addr@host>`; the relay requires it
  * @param {string|string[]} params.to Recipient email(s)
  * @param {string} params.subject Subject line
  * @param {string} params.text Plaintext message
@@ -100,6 +101,7 @@ export async function sendWebPushNotification({
 export async function sendRelayEmail({
   tunnusUrl = 'https://tunnus.riihimaenseurakunta.fi',
   token,
+  from,
   to,
   subject,
   text,
@@ -115,6 +117,7 @@ export async function sendRelayEmail({
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
+      from,
       to: Array.isArray(to) ? to : [to],
       subject,
       text,
