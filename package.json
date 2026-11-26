@@ -32,7 +32,7 @@
     "@types/web-push": "^3.6.4",
     "eslint": "^10.15.0",
     "globals": "^17.14.0",
-    "openid-client": "^6.8.9",
+    "openid-client": "^6.9.1",
     "prettier": "^3.10.1",
     "supertest": "^7.3.2",
     "typescript": "^7.0.2",
