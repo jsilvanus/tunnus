@@ -1,5 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
+  SERVICE_TYPES,
+  normalizeLocalPortUrl,
   createDiscoveryClient,
   startServiceDiscovery,
   fetchDiscoveryCatalog,
@@ -252,5 +254,86 @@ describe('Discovery Client Module', () => {
       'https://tunnus.riihimaenseurakunta.fi/api/v1/discovery?type=signage&capability=export_target',
     );
     expect(result.services).toBeDefined();
+  });
+
+  it('exports canonical SERVICE_TYPES', () => {
+    expect(Object.isFrozen(SERVICE_TYPES)).toBe(true);
+    expect(SERVICE_TYPES.MEDIA_RELAY).toBe('media-relay');
+    expect(SERVICE_TYPES.PI_SYSTEM).toBe('pi-system');
+    expect(SERVICE_TYPES.PIGATEWAY).toBe('pigateway');
+    expect(SERVICE_TYPES.PIECOSYSTEM).toBe('piecosystem');
+    expect(SERVICE_TYPES.PIPROGRAM).toBe('piprogram');
+    expect(SERVICE_TYPES.SIGNAGE).toBe('signage');
+    expect(SERVICE_TYPES.CANVA).toBe('canva');
+    expect(SERVICE_TYPES.PICONTROL).toBe('picontrol');
+    expect(SERVICE_TYPES.MCP).toBe('mcp');
+    expect(SERVICE_TYPES.ANNO_API).toBe('anno-api');
+  });
+
+  it('normalizes local port URLs with normalizeLocalPortUrl', () => {
+    expect(normalizeLocalPortUrl(8000)).toBe('http://host.docker.internal:8000');
+    expect(normalizeLocalPortUrl('8000')).toBe('http://host.docker.internal:8000');
+    expect(normalizeLocalPortUrl(':8000')).toBe('http://host.docker.internal:8000');
+    expect(normalizeLocalPortUrl('http://localhost:8000')).toBe('http://host.docker.internal:8000');
+    expect(normalizeLocalPortUrl('http://127.0.0.1:8000/stream')).toBe('http://host.docker.internal:8000/stream');
+    expect(normalizeLocalPortUrl('https://events.riihimaenseurakunta.fi')).toBe('https://events.riihimaenseurakunta.fi');
+    expect(normalizeLocalPortUrl(null)).toBe(null);
+  });
+
+  it('provides getService(), updateMetadata(), and setRelayedVenues()', async () => {
+    let capturedPutBody = null;
+    let putCount = 0;
+    const mockFetch = vi.fn(async (url, init) => {
+      if (init?.method === 'PUT') {
+        putCount++;
+        capturedPutBody = JSON.parse(init.body);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ id: 'sissi-signage', metadata: capturedPutBody.metadata }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+
+    const client = createDiscoveryClient({
+      ...validOptions,
+      fetch: mockFetch,
+    });
+
+    // Test getService returns snapshot
+    const snap = client.getService();
+    expect(snap.id).toBe('sissi-signage');
+    snap.metadata.default_view = 'mutated';
+    expect(client.getService().metadata.default_view).toBe('parish_bulletin');
+
+    // updateMetadata before start does not PUT if not running
+    const updatedMeta = await client.updateMetadata({ extra: 'field' });
+    expect(putCount).toBe(0);
+    expect(updatedMeta.extra).toBe('field');
+
+    // start client
+    await client.start();
+    expect(putCount).toBe(1);
+
+    // updateMetadata while running performs PUT
+    await client.updateMetadata({ channel: 'info-1' });
+    expect(putCount).toBe(2);
+    expect(capturedPutBody.metadata.channel).toBe('info-1');
+    expect(capturedPutBody.metadata.extra).toBe('field');
+
+    // setRelayedVenues updates relayed_systems, venues, default_system, updated_at
+    const venues = {
+      keskuskirkko: { port: 8000 },
+      kappeli: { port: 8001 },
+    };
+    await client.setRelayedVenues(venues, { defaultVenue: 'keskuskirkko' });
+    expect(putCount).toBe(3);
+    expect(capturedPutBody.metadata.relayed_systems).toEqual(['keskuskirkko', 'kappeli']);
+    expect(capturedPutBody.metadata.venues).toEqual(venues);
+    expect(capturedPutBody.metadata.default_system).toBe('keskuskirkko');
+    expect(capturedPutBody.metadata.updated_at).toBeDefined();
+
+    client.stop();
   });
 });

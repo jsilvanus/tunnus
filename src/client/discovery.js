@@ -38,6 +38,62 @@
  */
 
 /**
+ * Canonical parish service types across Tunnus discovery catalog.
+ */
+export const SERVICE_TYPES = Object.freeze({
+  PI_SYSTEM: 'pi-system',
+  MEDIA_RELAY: 'media-relay',
+  PIGATEWAY: 'pigateway',
+  PIECOSYSTEM: 'piecosystem',
+  PIPROGRAM: 'piprogram',
+  SIGNAGE: 'signage',
+  CANVA: 'canva',
+  PICONTROL: 'picontrol',
+  MCP: 'mcp',
+  ANNO_API: 'anno-api',
+});
+
+/**
+ * Converts a port number or localhost/127.0.0.1 URL to http://host.docker.internal:<port>,
+ * preserving other URLs.
+ * @param {string|number} value
+ * @returns {string}
+ */
+export function normalizeLocalPortUrl(value) {
+  if (value === null || value === undefined || value === '') {
+    return value;
+  }
+  const str = String(value).trim();
+  if (/^\d+$/.test(str)) {
+    return `http://host.docker.internal:${str}`;
+  }
+  if (/^:\d+$/.test(str)) {
+    return `http://host.docker.internal${str}`;
+  }
+  try {
+    const url = new URL(str);
+    const host = url.hostname.toLowerCase();
+    if (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '[::1]' ||
+      host === '::1'
+    ) {
+      url.hostname = 'host.docker.internal';
+      url.protocol = 'http:';
+      let formatted = url.toString();
+      if (!str.endsWith('/') && formatted.endsWith('/') && url.pathname === '/') {
+        formatted = formatted.slice(0, -1);
+      }
+      return formatted;
+    }
+    return str;
+  } catch {
+    return str;
+  }
+}
+
+/**
  * Encodes basic authentication header in a cross-environment safe manner.
  * @param {string} user
  * @param {string} pass
@@ -232,6 +288,53 @@ export function createDiscoveryClient(options) {
     return res.json();
   }
 
+  /**
+   * Merges partialMetadata into service.metadata.
+   * If andRegister is true (and running), calls register() and returns the response.
+   * @param {Record<string, any>} partialMetadata
+   * @param {boolean} [andRegister=true]
+   */
+  async function updateMetadata(partialMetadata, andRegister = true) {
+    if (partialMetadata && typeof partialMetadata === 'object') {
+      service.metadata = {
+        ...(service.metadata || {}),
+        ...partialMetadata,
+      };
+    }
+    if (andRegister && running) {
+      return await register();
+    }
+    return service.metadata;
+  }
+
+  /**
+   * Sets relayed venues metadata for multi-venue routers (e.g. Media Relay).
+   * Sets relayed_systems = Object.keys(venuesMap || {}), venues = venuesMap,
+   * default_system = defaultVenue (if given), updated_at = new Date().toISOString(),
+   * and calls updateMetadata(..., andRegister).
+   * @param {Record<string, any>} venuesMap
+   * @param {{ defaultVenue?: string, andRegister?: boolean }} [options]
+   */
+  async function setRelayedVenues(venuesMap, { defaultVenue, andRegister = true } = {}) {
+    const meta = {
+      relayed_systems: Object.keys(venuesMap || {}),
+      venues: venuesMap,
+      updated_at: new Date().toISOString(),
+    };
+    if (defaultVenue !== undefined) {
+      meta.default_system = defaultVenue;
+    }
+    return updateMetadata(meta, andRegister);
+  }
+
+  /**
+   * Returns a deep copy / snapshot of the internal service definition.
+   * @returns {DiscoveryServiceInput}
+   */
+  function getService() {
+    return JSON.parse(JSON.stringify(service));
+  }
+
   function startHeartbeatLoop() {
     stopHeartbeat();
     heartbeatTimer = setInterval(async () => {
@@ -372,6 +475,9 @@ export function createDiscoveryClient(options) {
     heartbeat,
     deregister,
     get,
+    updateMetadata,
+    setRelayedVenues,
+    getService,
   };
 }
 
